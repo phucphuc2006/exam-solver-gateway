@@ -101,10 +101,13 @@ async function start() {
   showBanner();
   ensureDataDir();
 
-  // Point to the Next.js standalone server
-  const serverPath = isPkg
-    ? path.join(BASE_DIR, ".next", "standalone", "server.js")
-    : path.join(__dirname, ".next", "standalone", "server.js");
+  // Priority 1: Check if server.js is in the same directory (when built and copied into dist root)
+  // Priority 2: Use Next.js native standalone path (for dev testing)
+  const fs = require("fs");
+  let serverPath = path.join(BASE_DIR, "server.js");
+  if (!fs.existsSync(serverPath)) {
+    serverPath = path.join(BASE_DIR, ".next", "standalone", "server.js");
+  }
 
   try {
     require(serverPath);
