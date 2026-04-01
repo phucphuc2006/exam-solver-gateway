@@ -1,0 +1,153 @@
+"use server";
+
+import { NextResponse } from "next/server";
+import { exec } from "child_process";
+import { promisify } from "util";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+
+const execAsync = promisify(exec);
+
+const getConfigDir = () => path.join(os.homedir(), ".config", "opencode");
+const getConfigPath = () => path.join(getConfigDir(), "opencode.json");
+
+const checkOpenCodeInstalled = async () => {
+  try {
+    const isWindows = os.platform() === "win32";
+    const command = isWindows ? "where opencode" : "command -v opencode";
+    await execAsync(command, { windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const readConfig = async () => {
+  try {
+    const content = await fs.readFile(getConfigPath(), "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+};
+
+const hasESGatewayConfig = (config) => {
+  if (!config?.provider) return false;
+  return !!config.provider["ES Gateway"];
+};
+
+// GET - Check opencode CLI and read current settings
+export async function GET() {
+  try {
+    const isInstalled = await checkOpenCodeInstalled();
+
+    if (!isInstalled) {
+      return NextResponse.json({
+        installed: false,
+        config: null,
+        message: "OpenCode CLI is not installed",
+      });
+    }
+
+    const config = await readConfig();
+
+    return NextResponse.json({
+      installed: true,
+      config,
+      hasESGateway: hasESGatewayConfig(config),
+      configPath: getConfigPath(),
+    });
+  } catch (error) {
+    console.log("Error checking opencode settings:", error);
+    return NextResponse.json({ error: "Failed to check opencode settings" }, { status: 500 });
+  }
+}
+
+// POST - Apply ES Gateway as openai-compatible provider
+export async function POST(request) {
+  try {
+    const { baseUrl, apiKey, model } = await request.json();
+
+    if (!baseUrl || !model) {
+      return NextResponse.json({ error: "baseUrl and model are required" }, { status: 400 });
+    }
+
+    const configDir = getConfigDir();
+    const configPath = getConfigPath();
+
+    await fs.mkdir(configDir, { recursive: true });
+
+    // Read existing config or start fresh
+    let config = {};
+    try {
+      const existing = await fs.readFile(configPath, "utf-8");
+      config = JSON.parse(existing);
+    } catch { /* No existing config */ }
+
+    const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
+    const keyToUse = apiKey || "sk_ES Gateway";
+
+    // Merge ES Gateway provider
+    if (!config.provider) config.provider = {};
+    config.provider["ES Gateway"] = {
+      npm: "@ai-sdk/openai-compatible",
+      options: {
+        baseURL: normalizedBaseUrl,
+        apiKey: keyToUse,
+      },
+      models: {
+        [model]: { name: model },
+      },
+    };
+
+    // Set as active model
+    config.model = `ES Gateway/${model}`;
+
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+
+    return NextResponse.json({
+      success: true,
+      message: "OpenCode settings applied successfully!",
+      configPath,
+    });
+  } catch (error) {
+    console.log("Error updating opencode settings:", error);
+    return NextResponse.json({ error: "Failed to update opencode settings" }, { status: 500 });
+  }
+}
+
+// DELETE - Remove ES Gateway provider from config
+export async function DELETE() {
+  try {
+    const configPath = getConfigPath();
+
+    let config = {};
+    try {
+      const existing = await fs.readFile(configPath, "utf-8");
+      config = JSON.parse(existing);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return NextResponse.json({ success: true, message: "No config file to reset" });
+      }
+      throw error;
+    }
+
+    // Remove ES Gateway provider
+    if (config.provider) delete config.provider["ES Gateway"];
+
+    // Reset model if it was pointing to ES Gateway
+    if (config.model?.startsWith("ES Gateway/")) delete config.model;
+
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+
+    return NextResponse.json({
+      success: true,
+      message: "ES Gateway settings removed from OpenCode",
+    });
+  } catch (error) {
+    console.log("Error resetting opencode settings:", error);
+    return NextResponse.json({ error: "Failed to reset opencode settings" }, { status: 500 });
+  }
+}
