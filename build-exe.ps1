@@ -13,7 +13,16 @@ Write-Host ""
 
 # Step 1: Clean previous build
 Write-Host "  [1/5] Cleaning previous build..." -ForegroundColor Yellow
-if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
+if (Test-Path $BuildDir) { 
+    try {
+        Remove-Item -Recurse -Force $BuildDir -ErrorAction Stop
+    } catch {
+        # Ignore if open in VSCode
+    }
+}
+if (-not (Test-Path $BuildDir)) {
+    New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+}
 
 # Step 2: Build Next.js (already built, skip if .next exists)
 $nextDir = Join-Path $ProjectRoot ".next"
@@ -81,6 +90,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 node server-entry.js %*
+if %errorlevel% neq 0 (
+    echo.
+    echo [LỖI] Server bị dừng vì có lỗi (Xem chi tiết ở trên).
+    pause
+)
 "@ | Set-Content -Path (Join-Path $OutputDir "ExamSolverGateway.bat") -Encoding ASCII
 
 Write-Host "  OK - Launcher created" -ForegroundColor Green

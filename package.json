@@ -1,6 +1,6 @@
 {
   "name": "exam-solver-gateway",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Exam Solver AI Gateway - Smart AI Router for Exam Solver",
   "private": true,
   "scripts": {
