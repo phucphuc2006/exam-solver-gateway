@@ -1,21 +1,25 @@
 {
   "name": "exam-solver-gateway",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Exam Solver AI Gateway - Smart AI Router for Exam Solver",
   "private": true,
+  "main": "electron-main.js",
   "scripts": {
     "dev": "next dev --webpack --port 21088",
     "build": "next build --webpack",
     "start": "next start",
     "dev:bun": "bun --bun next dev --webpack --port 21088",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
-    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js"
+    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder --win"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.10.1",
     "bcryptjs": "^3.0.3",
     "confbox": "^0.2.4",
+    "electron-updater": "^6.8.3",
     "express": "^5.2.1",
     "fs": "^0.0.1-security",
     "http-proxy-middleware": "^3.0.5",
@@ -44,9 +48,71 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.6",
     "tailwindcss": "^4"
+  },
+  "build": {
+    "appId": "com.examsolver.gateway",
+    "productName": "ExamSolverGateway",
+    "copyright": "Copyright 2026 Exam Solver",
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "electron-main.js",
+      "electron-preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "standalone",
+        "filter": ["**/*"]
+      },
+      {
+        "from": ".next/static",
+        "to": "standalone/.next/static",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "public",
+        "to": "standalone/public",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "assets/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerSidebar": null,
+      "license": null,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "phucphuc2006",
+      "repo": "exam-solver-gateway",
+      "releaseType": "release"
+    }
   }
 }
