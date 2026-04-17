@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedAdmin, requireBootstrapComplete } from "@/lib/adminAuth";
+import { enforceRateLimit } from "@/lib/rateLimit";
 import { getProviderConnectionById, getApiKeys } from "@/lib/localDb";
 import { getProviderModels, PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 /**
  * Get an active API key to pass through auth when requireApiKey is enabled.
@@ -51,6 +52,21 @@ async function pingModel(modelId, baseUrl, apiKey) {
  * Actual requests go through /api/v1/chat/completions (open-sse handles everything).
  */
 export async function POST(request, { params }) {
+  const bootstrapResponse = await requireBootstrapComplete(request);
+  if (bootstrapResponse) return bootstrapResponse;
+
+  const authResponse = await requireAuthenticatedAdmin(request);
+  if (authResponse) return authResponse;
+
+  const limited = enforceRateLimit(
+    request,
+    { scope: "providers.test.models", limit: 5, windowMs: 60_000 },
+    "Too many provider model test attempts",
+  );
+  if (limited.response) {
+    return limited.response;
+  }
+
   try {
     const { id } = await params;
     const connection = await getProviderConnectionById(id);
@@ -59,13 +75,12 @@ export async function POST(request, { params }) {
     }
 
     const providerId = connection.provider;
-    const isCompatible = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
     const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
 
     let models = getProviderModels(alias);
 
-    // Compatible providers: fetch live model list
-    if (isCompatible && models.length === 0) {
+    // Fallback to live model list when static metadata is missing
+    if (models.length === 0) {
       try {
         const modelsRes = await fetch(`${getBaseUrl(request)}/api/providers/${id}/models`);
         if (modelsRes.ok) {

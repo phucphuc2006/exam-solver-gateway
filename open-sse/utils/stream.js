@@ -1,7 +1,7 @@
 import { translateResponse, initState } from "../translator/index.js";
 import { FORMATS } from "../translator/formats.js";
-import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
-import { extractUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
+import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb/index.js";
+import { extractUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, inferReasoningUsage, COLORS } from "./usageTracking.js";
 import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
 
 export { COLORS, formatSSE };
@@ -48,6 +48,7 @@ export function createSSEStream(options = {}) {
 
   let buffer = "";
   let usage = null;
+  let pendingEventType = null;
 
   // Per-stream decoder with stream:true to correctly handle multi-byte chars split across chunks
   const decoder = new TextDecoder("utf-8", { fatal: false });
@@ -58,6 +59,232 @@ export function createSSEStream(options = {}) {
   let accumulatedContent = "";
   let accumulatedThinking = "";
   let ttftAt = null;
+
+  const processLine = (line, controller) => {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("event:")) {
+      pendingEventType = trimmed.slice(6).trim() || null;
+      return;
+    }
+
+    if (!trimmed) {
+      pendingEventType = null;
+      return;
+    }
+
+    // Passthrough mode: normalize and forward
+    if (mode === STREAM_MODE.PASSTHROUGH) {
+      let output;
+      let injectedUsage = false;
+
+      if (trimmed.startsWith("data:") && trimmed.slice(5).trim() !== "[DONE]") {
+        try {
+          const parsed = JSON.parse(trimmed.slice(5).trim());
+
+          const idFixed = fixInvalidId(parsed);
+
+          // Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
+          let fieldsInjected = false;
+          if (parsed.choices !== undefined) {
+            if (!parsed.object) { parsed.object = "chat.completion.chunk"; fieldsInjected = true; }
+            if (!parsed.created) { parsed.created = Math.floor(Date.now() / 1000); fieldsInjected = true; }
+          }
+
+          // Strip Azure-specific non-standard fields from streaming chunks
+          if (parsed.prompt_filter_results !== undefined) {
+            delete parsed.prompt_filter_results;
+            fieldsInjected = true;
+          }
+          if (parsed?.choices) {
+            for (const choice of parsed.choices) {
+              if (choice.content_filter_results !== undefined) {
+                delete choice.content_filter_results;
+                fieldsInjected = true;
+              }
+            }
+          }
+
+          const extracted = extractUsage(parsed);
+          if (extracted) {
+            usage = inferReasoningUsage({
+              usage: extracted,
+              body,
+              content: accumulatedContent,
+              thinking: accumulatedThinking,
+            });
+          }
+
+          if (!hasValuableContent(parsed, FORMATS.OPENAI) && !extracted) {
+            return;
+          }
+
+          const delta = parsed.choices?.[0]?.delta;
+          const content = delta?.content;
+          const reasoning = delta?.reasoning_content;
+          if (content && typeof content === "string") {
+            totalContentLength += content.length;
+            accumulatedContent += content;
+          }
+          if (reasoning && typeof reasoning === "string") {
+            totalContentLength += reasoning.length;
+            accumulatedThinking += reasoning;
+          }
+
+          const isFinishChunk = parsed.choices?.[0]?.finish_reason;
+          if (isFinishChunk && !hasValidUsage(parsed.usage)) {
+            const estimated = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
+            parsed.usage = filterUsageForFormat(estimated, FORMATS.OPENAI);
+            output = `data: ${JSON.stringify(parsed)}\n`;
+            usage = estimated;
+            injectedUsage = true;
+          } else if (isFinishChunk && usage) {
+            const buffered = addBufferToUsage(usage);
+            parsed.usage = filterUsageForFormat(buffered, FORMATS.OPENAI);
+            output = `data: ${JSON.stringify(parsed)}\n`;
+            injectedUsage = true;
+          } else if (idFixed || fieldsInjected) {
+            output = `data: ${JSON.stringify(parsed)}\n`;
+            injectedUsage = true;
+          }
+        } catch { }
+      }
+
+      if (!injectedUsage) {
+        if (line.startsWith("data:") && !line.startsWith("data: ")) {
+          output = "data: " + line.slice(5) + "\n";
+        } else {
+          output = line + "\n";
+        }
+      }
+
+      if (trimmed.startsWith("data:")) {
+        pendingEventType = null;
+      }
+
+      reqLogger?.appendConvertedChunk?.(output);
+      controller.enqueue(sharedEncoder.encode(output));
+      return;
+    }
+
+    const parsed = parseSSELine(trimmed, targetFormat);
+    if (!parsed) {
+      if (trimmed.startsWith("data:")) {
+        pendingEventType = null;
+      }
+      return;
+    }
+
+    if (pendingEventType && !parsed.type && !parsed.event) {
+      parsed.event = pendingEventType;
+    }
+    if (trimmed.startsWith("data:")) {
+      pendingEventType = null;
+    }
+
+    // For Ollama: done=true is the final chunk with finish_reason/usage, must translate
+    // For other formats: done=true is the [DONE] sentinel, skip
+    if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
+      const output = "data: [DONE]\n\n";
+      reqLogger?.appendConvertedChunk?.(output);
+      controller.enqueue(sharedEncoder.encode(output));
+      return;
+    }
+
+    // Claude format - content
+    if (parsed.delta?.text) {
+      totalContentLength += parsed.delta.text.length;
+      accumulatedContent += parsed.delta.text;
+    }
+    // Claude format - thinking
+    if (parsed.delta?.thinking) {
+      totalContentLength += parsed.delta.thinking.length;
+      accumulatedThinking += parsed.delta.thinking;
+    }
+    
+    // OpenAI format - content
+    if (parsed.choices?.[0]?.delta?.content) {
+      totalContentLength += parsed.choices[0].delta.content.length;
+      accumulatedContent += parsed.choices[0].delta.content;
+    }
+    // OpenAI format - reasoning
+    if (parsed.choices?.[0]?.delta?.reasoning_content) {
+      totalContentLength += parsed.choices[0].delta.reasoning_content.length;
+      accumulatedThinking += parsed.choices[0].delta.reasoning_content;
+    }
+    
+    // OPENAI_RESPONSES format
+    if (parsed.type === "response.output_text.delta" && parsed.delta) {
+      totalContentLength += parsed.delta.length;
+      accumulatedContent += parsed.delta;
+    }
+    if (parsed.type === "response.reasoning_summary_text.delta" && parsed.delta) {
+      totalContentLength += parsed.delta.length;
+      accumulatedThinking += parsed.delta;
+    }
+    
+    // Gemini format
+    if (parsed.candidates?.[0]?.content?.parts) {
+      for (const part of parsed.candidates[0].content.parts) {
+        if (part.text && typeof part.text === "string") {
+          totalContentLength += part.text.length;
+          // Check if this is thinking content
+          if (part.thought === true) {
+            accumulatedThinking += part.text;
+          } else {
+            accumulatedContent += part.text;
+          }
+        }
+      }
+    }
+
+    // Extract usage
+    const extracted = extractUsage(parsed);
+    if (extracted) {
+      state.usage = inferReasoningUsage({
+        usage: extracted,
+        body,
+        content: accumulatedContent,
+        thinking: accumulatedThinking,
+      });
+    }
+
+    // Translate: targetFormat -> openai -> sourceFormat
+    const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
+
+    // Log OpenAI intermediate chunks (if available)
+    if (translated?._openaiIntermediate) {
+      for (const item of translated._openaiIntermediate) {
+        const openaiOutput = formatSSE(item, FORMATS.OPENAI);
+        reqLogger?.appendOpenAIChunk?.(openaiOutput);
+      }
+    }
+
+    if (translated?.length > 0) {
+      for (const item of translated) {
+        // Filter empty chunks
+        if (!hasValuableContent(item, sourceFormat)) {
+          continue; // Skip this empty chunk
+        }
+
+        // Inject estimated usage if finish chunk has no valid usage
+        const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
+        if (state.finishReason && isFinishChunk && !hasValidUsage(item.usage) && totalContentLength > 0) {
+          const estimated = estimateUsage(body, totalContentLength, sourceFormat);
+          item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
+          state.usage = estimated;
+        } else if (state.finishReason && isFinishChunk && state.usage) {
+          // Add buffer and filter usage for client (but keep original in state.usage for logging)
+          const buffered = addBufferToUsage(state.usage);
+          item.usage = filterUsageForFormat(buffered, sourceFormat);
+        }
+
+        const output = formatSSE(item, sourceFormat);
+        reqLogger?.appendConvertedChunk?.(output);
+        controller.enqueue(sharedEncoder.encode(output));
+      }
+    }
+  };
 
   return new TransformStream({
     transform(chunk, controller) {
@@ -72,184 +299,7 @@ export function createSSEStream(options = {}) {
       buffer = lines.pop() || "";
 
       for (const line of lines) {
-        const trimmed = line.trim();
-
-        // Passthrough mode: normalize and forward
-        if (mode === STREAM_MODE.PASSTHROUGH) {
-          let output;
-          let injectedUsage = false;
-
-          if (trimmed.startsWith("data:") && trimmed.slice(5).trim() !== "[DONE]") {
-            try {
-              const parsed = JSON.parse(trimmed.slice(5).trim());
-
-              const idFixed = fixInvalidId(parsed);
-
-              // Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
-              let fieldsInjected = false;
-              if (parsed.choices !== undefined) {
-                if (!parsed.object) { parsed.object = "chat.completion.chunk"; fieldsInjected = true; }
-                if (!parsed.created) { parsed.created = Math.floor(Date.now() / 1000); fieldsInjected = true; }
-              }
-
-              // Strip Azure-specific non-standard fields from streaming chunks
-              if (parsed.prompt_filter_results !== undefined) {
-                delete parsed.prompt_filter_results;
-                fieldsInjected = true;
-              }
-              if (parsed?.choices) {
-                for (const choice of parsed.choices) {
-                  if (choice.content_filter_results !== undefined) {
-                    delete choice.content_filter_results;
-                    fieldsInjected = true;
-                  }
-                }
-              }
-
-              if (!hasValuableContent(parsed, FORMATS.OPENAI)) {
-                continue;
-              }
-
-              const delta = parsed.choices?.[0]?.delta;
-              const content = delta?.content;
-              const reasoning = delta?.reasoning_content;
-              if (content && typeof content === "string") {
-                totalContentLength += content.length;
-                accumulatedContent += content;
-              }
-              if (reasoning && typeof reasoning === "string") {
-                totalContentLength += reasoning.length;
-                accumulatedThinking += reasoning;
-              }
-
-              const extracted = extractUsage(parsed);
-              if (extracted) {
-                usage = extracted;
-              }
-
-              const isFinishChunk = parsed.choices?.[0]?.finish_reason;
-              if (isFinishChunk && !hasValidUsage(parsed.usage)) {
-                const estimated = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
-                parsed.usage = filterUsageForFormat(estimated, FORMATS.OPENAI);
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                usage = estimated;
-                injectedUsage = true;
-              } else if (isFinishChunk && usage) {
-                const buffered = addBufferToUsage(usage);
-                parsed.usage = filterUsageForFormat(buffered, FORMATS.OPENAI);
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                injectedUsage = true;
-              } else if (idFixed || fieldsInjected) {
-                output = `data: ${JSON.stringify(parsed)}\n`;
-                injectedUsage = true;
-              }
-            } catch { }
-          }
-
-          if (!injectedUsage) {
-            if (line.startsWith("data:") && !line.startsWith("data: ")) {
-              output = "data: " + line.slice(5) + "\n";
-            } else {
-              output = line + "\n";
-            }
-          }
-
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
-          continue;
-        }
-
-        // Translate mode
-        if (!trimmed) continue;
-
-        const parsed = parseSSELine(trimmed, targetFormat);
-        if (!parsed) continue;
-
-        // For Ollama: done=true is the final chunk with finish_reason/usage, must translate
-        // For other formats: done=true is the [DONE] sentinel, skip
-        if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
-          const output = "data: [DONE]\n\n";
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
-          continue;
-        }
-
-        // Claude format - content
-        if (parsed.delta?.text) {
-          totalContentLength += parsed.delta.text.length;
-          accumulatedContent += parsed.delta.text;
-        }
-        // Claude format - thinking
-        if (parsed.delta?.thinking) {
-          totalContentLength += parsed.delta.thinking.length;
-          accumulatedThinking += parsed.delta.thinking;
-        }
-        
-        // OpenAI format - content
-        if (parsed.choices?.[0]?.delta?.content) {
-          totalContentLength += parsed.choices[0].delta.content.length;
-          accumulatedContent += parsed.choices[0].delta.content;
-        }
-        // OpenAI format - reasoning
-        if (parsed.choices?.[0]?.delta?.reasoning_content) {
-          totalContentLength += parsed.choices[0].delta.reasoning_content.length;
-          accumulatedThinking += parsed.choices[0].delta.reasoning_content;
-        }
-        
-        // Gemini format
-        if (parsed.candidates?.[0]?.content?.parts) {
-          for (const part of parsed.candidates[0].content.parts) {
-            if (part.text && typeof part.text === "string") {
-              totalContentLength += part.text.length;
-              // Check if this is thinking content
-              if (part.thought === true) {
-                accumulatedThinking += part.text;
-              } else {
-                accumulatedContent += part.text;
-              }
-            }
-          }
-        }
-
-        // Extract usage
-        const extracted = extractUsage(parsed);
-        if (extracted) state.usage = extracted; // Keep original usage for logging
-
-        // Translate: targetFormat -> openai -> sourceFormat
-        const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
-
-        // Log OpenAI intermediate chunks (if available)
-        if (translated?._openaiIntermediate) {
-          for (const item of translated._openaiIntermediate) {
-            const openaiOutput = formatSSE(item, FORMATS.OPENAI);
-            reqLogger?.appendOpenAIChunk?.(openaiOutput);
-          }
-        }
-
-        if (translated?.length > 0) {
-          for (const item of translated) {
-            // Filter empty chunks
-            if (!hasValuableContent(item, sourceFormat)) {
-              continue; // Skip this empty chunk
-            }
-
-            // Inject estimated usage if finish chunk has no valid usage
-            const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
-            if (state.finishReason && isFinishChunk && !hasValidUsage(item.usage) && totalContentLength > 0) {
-              const estimated = estimateUsage(body, totalContentLength, sourceFormat);
-              item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
-              state.usage = estimated;
-            } else if (state.finishReason && isFinishChunk && state.usage) {
-              // Add buffer and filter usage for client (but keep original in state.usage for logging)
-              const buffered = addBufferToUsage(state.usage);
-              item.usage = filterUsageForFormat(buffered, sourceFormat);
-            }
-
-            const output = formatSSE(item, sourceFormat);
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
-          }
-        }
+        processLine(line, controller);
       }
     },
 
@@ -261,17 +311,34 @@ export function createSSEStream(options = {}) {
 
         if (mode === STREAM_MODE.PASSTHROUGH) {
           if (buffer) {
-            let output = buffer;
-            if (buffer.startsWith("data:") && !buffer.startsWith("data: ")) {
-              output = "data: " + buffer.slice(5);
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              processLine(line, controller);
             }
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+
+            if (buffer.trim()) {
+              processLine(buffer, controller);
+              buffer = "";
+            }
           }
 
           if (!hasValidUsage(usage) && totalContentLength > 0) {
             usage = estimateUsage(body, totalContentLength, FORMATS.OPENAI);
           }
+          
+          if (accumulatedThinking.length > 0) {
+            if (!usage) usage = { prompt_tokens: Math.max(1, Math.floor(JSON.stringify(body).length / 4)), completion_tokens: Math.max(1, Math.floor(totalContentLength / 4)), total_tokens: 0 };
+            if (!usage.reasoning_tokens) usage.reasoning_tokens = Math.max(1, Math.floor(accumulatedThinking.length / 4));
+          }
+
+          usage = inferReasoningUsage({
+            usage,
+            body,
+            content: accumulatedContent,
+            thinking: accumulatedThinking,
+          });
 
           if (hasValidUsage(usage)) {
             logUsage(provider, usage, model, connectionId, apiKey);
@@ -296,25 +363,17 @@ export function createSSEStream(options = {}) {
           return;
         }
 
-        if (buffer.trim()) {
-          const parsed = parseSSELine(buffer.trim());
-          if (parsed && !parsed.done) {
-            const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
+        if (buffer) {
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-            if (translated?._openaiIntermediate) {
-              for (const item of translated._openaiIntermediate) {
-                const openaiOutput = formatSSE(item, FORMATS.OPENAI);
-                reqLogger?.appendOpenAIChunk?.(openaiOutput);
-              }
-            }
+          for (const line of lines) {
+            processLine(line, controller);
+          }
 
-            if (translated?.length > 0) {
-              for (const item of translated) {
-                const output = formatSSE(item, sourceFormat);
-                reqLogger?.appendConvertedChunk?.(output);
-                controller.enqueue(sharedEncoder.encode(output));
-              }
-            }
+          if (buffer.trim()) {
+            processLine(buffer, controller);
+            buffer = "";
           }
         }
 
@@ -342,6 +401,20 @@ export function createSSEStream(options = {}) {
         if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
           state.usage = estimateUsage(body, totalContentLength, sourceFormat);
         }
+
+        if (accumulatedThinking.length > 0) {
+          if (!state.usage) state.usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+          if (!state.usage.reasoning_tokens) {
+             state.usage.reasoning_tokens = Math.max(1, Math.floor(accumulatedThinking.length / 4));
+          }
+        }
+
+        state.usage = inferReasoningUsage({
+          usage: state?.usage,
+          body,
+          content: accumulatedContent,
+          thinking: accumulatedThinking,
+        });
 
         if (hasValidUsage(state?.usage)) {
           logUsage(state.provider || targetFormat, state.usage, model, connectionId, apiKey);

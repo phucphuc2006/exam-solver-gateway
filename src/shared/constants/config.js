@@ -1,9 +1,10 @@
 import pkg from "../../../package.json" with { type: "json" };
+import { APP_DESCRIPTION, APP_NAME } from "./app.js";
 
 // App configuration
 export const APP_CONFIG = {
-  name: "Exam Solver AI Gateway",
-  description: "Smart AI Gateway for Exam Solver",
+  name: APP_NAME,
+  description: APP_DESCRIPTION,
   version: pkg.version,
 };
 

@@ -1,4 +1,4 @@
-import { getProviderConnections } from "@/lib/localDb.js";
+import { getProviderConnections } from "@/lib/localDb/index.js";
 import { getExecutor, refreshTokenByProvider } from "open-sse/index.js";
 
 export async function POST(request) {

@@ -1,4 +1,4 @@
-# Exam Solver AI Gateway - Build Script
+# NexusAI Gateway - Build Script
 # Creates a distributable package (portable folder)
 
 $ErrorActionPreference = "Stop"
@@ -8,7 +8,7 @@ $OutputDir = Join-Path $BuildDir "exam-solver-gateway"
 $Version = (Get-Content (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
 
 Write-Host ""
-Write-Host "  Building Exam Solver AI Gateway v$Version" -ForegroundColor Cyan
+Write-Host "  Building NexusAI Gateway v$Version" -ForegroundColor Cyan
 Write-Host ""
 
 # Step 1: Clean previous build
@@ -80,7 +80,7 @@ Write-Host "  [4/5] Creating launcher..." -ForegroundColor Yellow
 
 @"
 @echo off
-title Exam Solver AI Gateway v$Version
+title NexusAI Gateway v$Version
 cd /d "%~dp0"
 where node >nul 2>nul
 if %errorlevel% neq 0 (

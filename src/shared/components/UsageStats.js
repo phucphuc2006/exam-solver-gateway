@@ -1,184 +1,30 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import dynamic from "next/dynamic";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Badge from "./Badge";
 import Card from "./Card";
 import OverviewCards from "@/app/(dashboard)/dashboard/usage/components/OverviewCards";
 import UsageTable, { fmt, fmtTime } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
-import ProviderTopology from "@/app/(dashboard)/dashboard/usage/components/ProviderTopology";
-import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
+import TopProviders from "@/app/(dashboard)/dashboard/usage/components/TopProviders";
+import RecentRequests from "@/app/(dashboard)/dashboard/usage/components/RecentRequests";
+import {
+  sortData, groupDataByKey, MODEL_COLUMNS, ACCOUNT_COLUMNS,
+  API_KEY_COLUMNS, ENDPOINT_COLUMNS, TABLE_OPTIONS, PERIODS
+} from "@/app/(dashboard)/dashboard/usage/components/usageStatsUtils";
 
-function timeAgo(timestamp) {
-  const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-// Auto-update time display every second without re-rendering parent
-function TimeAgo({ timestamp }) {
-  const [, setTick] = useState(0);
-  
-  useEffect(() => {
-    const timer = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  
-  return <>{timeAgo(timestamp)}</>;
-}
-
-function RecentRequests({ requests = [] }) {
-  return (
-    <Card className="flex flex-col overflow-hidden" padding="sm" style={{ height: 480 }}>
-      {/* Header */}
-      <div className="px-1 py-2 border-b border-border shrink-0">
-        <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">Recent Requests</span>
-      </div>
-
-      {!requests.length ? (
-        <div className="flex-1 flex items-center justify-center text-text-muted text-sm">No requests yet.</div>
-      ) : (
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 bg-bg z-10">
-              <tr className="border-b border-border">
-                <th className="py-1.5 text-left font-semibold text-text-muted w-2"></th>
-                <th className="py-1.5 text-left font-semibold text-text-muted">Model</th>
-                <th className="py-1.5 text-right font-semibold text-text-muted whitespace-nowrap">In / Out</th>
-                <th className="py-1.5 text-right font-semibold text-text-muted">When</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
-              {requests.map((r, i) => {
-                const ok = !r.status || r.status === "ok" || r.status === "success";
-                return (
-                  <tr key={i} className="hover:bg-bg-subtle transition-colors">
-                    <td className="py-1.5">
-                      <span className={`block w-1.5 h-1.5 rounded-full ${ok ? "bg-success" : "bg-error"}`} />
-                    </td>
-                    <td className="py-1.5 font-mono truncate max-w-[120px]" title={r.model}>{r.model}</td>
-                    <td className="py-1.5 text-right whitespace-nowrap">
-                      <span className="text-primary">{fmt(r.promptTokens)}↑</span>
-                      {" "}
-                      <span className="text-success">{fmt(r.completionTokens)}↓</span>
-                    </td>
-                    <td className="py-1.5 text-right text-text-muted whitespace-nowrap"><TimeAgo timestamp={r.timestamp} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function sortData(dataMap, pendingMap = {}, sortBy, sortOrder) {
-  return Object.entries(dataMap || {})
-    .map(([key, data]) => {
-      const totalTokens = (data.promptTokens || 0) + (data.completionTokens || 0);
-      const totalCost = data.cost || 0;
-      const inputCost = totalTokens > 0 ? (data.promptTokens || 0) * (totalCost / totalTokens) : 0;
-      const outputCost = totalTokens > 0 ? (data.completionTokens || 0) * (totalCost / totalTokens) : 0;
-      return { ...data, key, totalTokens, totalCost, inputCost, outputCost, pending: pendingMap[key] || 0 };
-    })
-    .sort((a, b) => {
-      let valA = a[sortBy];
-      let valB = b[sortBy];
-      if (typeof valA === "string") valA = valA.toLowerCase();
-      if (typeof valB === "string") valB = valB.toLowerCase();
-      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
-      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
-}
-
-function getGroupKey(item, keyField) {
-  switch (keyField) {
-    case "rawModel": return item.rawModel || "Unknown Model";
-    case "accountName": return item.accountName || `Account ${item.connectionId?.slice(0, 8)}...` || "Unknown Account";
-    case "keyName": return item.keyName || "Unknown Key";
-    case "endpoint": return item.endpoint || "Unknown Endpoint";
-    default: return item[keyField] || "Unknown";
-  }
-}
-
-function groupDataByKey(data, keyField) {
-  if (!Array.isArray(data)) return [];
-  const groups = {};
-  data.forEach((item) => {
-    const gk = getGroupKey(item, keyField);
-    if (!groups[gk]) {
-      groups[gk] = {
-        groupKey: gk,
-        summary: { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, cost: 0, inputCost: 0, outputCost: 0, lastUsed: null, pending: 0 },
-        items: [],
-      };
-    }
-    const s = groups[gk].summary;
-    s.requests += item.requests || 0;
-    s.promptTokens += item.promptTokens || 0;
-    s.completionTokens += item.completionTokens || 0;
-    s.totalTokens += item.totalTokens || 0;
-    s.cost += item.cost || 0;
-    s.inputCost += item.inputCost || 0;
-    s.outputCost += item.outputCost || 0;
-    s.pending += item.pending || 0;
-    if (item.lastUsed && (!s.lastUsed || new Date(item.lastUsed) > new Date(s.lastUsed))) {
-      s.lastUsed = item.lastUsed;
-    }
-    groups[gk].items.push(item);
-  });
-  return Object.values(groups);
-}
-
-const MODEL_COLUMNS = [
-  { field: "rawModel", label: "Model" },
-  { field: "provider", label: "Provider" },
-  { field: "requests", label: "Requests", align: "right" },
-  { field: "lastUsed", label: "Last Used", align: "right" },
-];
-
-const ACCOUNT_COLUMNS = [
-  { field: "rawModel", label: "Model" },
-  { field: "provider", label: "Provider" },
-  { field: "accountName", label: "Account" },
-  { field: "requests", label: "Requests", align: "right" },
-  { field: "lastUsed", label: "Last Used", align: "right" },
-];
-
-const API_KEY_COLUMNS = [
-  { field: "keyName", label: "API Key Name" },
-  { field: "rawModel", label: "Model" },
-  { field: "provider", label: "Provider" },
-  { field: "requests", label: "Requests", align: "right" },
-  { field: "lastUsed", label: "Last Used", align: "right" },
-];
-
-const ENDPOINT_COLUMNS = [
-  { field: "endpoint", label: "Endpoint" },
-  { field: "rawModel", label: "Model" },
-  { field: "provider", label: "Provider" },
-  { field: "requests", label: "Requests", align: "right" },
-  { field: "lastUsed", label: "Last Used", align: "right" },
-];
-
-const TABLE_OPTIONS = [
-  { value: "model", label: "Usage by Model" },
-  { value: "account", label: "Usage by Account" },
-  { value: "apiKey", label: "Usage by API Key" },
-  { value: "endpoint", label: "Usage by Endpoint" },
-];
-
-const PERIODS = [
-  { value: "24h", label: "24h" },
-  { value: "7d", label: "7D" },
-  { value: "30d", label: "30D" },
-  { value: "60d", label: "60D" },
-];
+const UsageChart = dynamic(
+  () => import("@/app/(dashboard)/dashboard/usage/components/UsageChart"),
+  {
+    ssr: false,
+    loading: () => (
+      <Card className="p-4 flex items-center justify-center min-h-[248px] text-sm text-text-muted">
+        Loading chart...
+      </Card>
+    ),
+  },
+);
 
 export default function UsageStats() {
   const router = useRouter();
@@ -194,6 +40,15 @@ export default function UsageStats() {
   const [viewMode, setViewMode] = useState("costs");
   const [providers, setProviders] = useState([]);
   const [period, setPeriod] = useState("7d");
+  const [dropOpen, setDropOpen] = useState(false);
+  const dropRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => { if (dropRef.current && !dropRef.current.contains(e.target)) setDropOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // Fetch connected providers once, deduplicate by provider type
   useEffect(() => {
@@ -232,28 +87,57 @@ export default function UsageStats() {
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
-    const es = new EventSource("/api/usage/stream");
+    let es = null;
 
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        // Always merge only real-time fields, never overwrite full stats from REST
-        setStats((prev) => ({
-          ...(prev || {}),
-          activeRequests: data.activeRequests,
-          recentRequests: data.recentRequests,
-          errorProvider: data.errorProvider,
-          pending: data.pending,
-        }));
+    const connect = () => {
+      if (document.hidden || es) return;
+
+      es = new EventSource("/api/usage/stream");
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          // Always merge only real-time fields, never overwrite full stats from REST
+          setStats((prev) => ({
+            ...(prev || {}),
+            activeRequests: data.activeRequests,
+            recentRequests: data.recentRequests,
+            errorProvider: data.errorProvider,
+            pending: data.pending,
+          }));
+          setLoading(false);
+        } catch (err) {
+          console.error("[SSE CLIENT] parse error:", err);
+        }
+      };
+
+      es.onerror = () => {
         setLoading(false);
-      } catch (err) {
-        console.error("[SSE CLIENT] parse error:", err);
+        es?.close();
+        es = null;
+      };
+    };
+
+    const disconnect = () => {
+      es?.close();
+      es = null;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        disconnect();
+      } else {
+        connect();
       }
     };
 
-    es.onerror = () => setLoading(false);
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    return () => es.close();
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      disconnect();
+    };
   }, []);
 
   const toggleSort = useCallback((tableType, field) => {
@@ -416,34 +300,52 @@ export default function UsageStats() {
       {/* Overview cards */}
       {loading ? spinner : <OverviewCards stats={stats} />}
 
-      {/* Provider topology + Recent Requests */}
+      {/* Usage Chart + Top Providers */}
       {loading ? spinner : (
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-2 items-stretch">
-          <ProviderTopology
-            providers={providers}
-            activeRequests={stats.activeRequests || []}
-            lastProvider={stats.recentRequests?.[0]?.provider || ""}
-            errorProvider={stats.errorProvider || ""}
-          />
-          <RecentRequests requests={stats.recentRequests || []} />
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-stretch">
+          <UsageChart period={period} />
+          <TopProviders stats={stats} />
         </div>
       )}
 
-      {/* Token / Cost chart - sync period */}
-      {loading ? spinner : <UsageChart period={period} />}
+      {/* Recent Requests — full width */}
+      {loading ? spinner : <RecentRequests requests={stats.recentRequests || []} />}
 
       {/* Table with dropdown selector */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <select
-            value={tableView}
-            onChange={(e) => setTableView(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-border bg-bg-subtle text-sm font-medium text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
-          >
-            {TABLE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+          {(() => {
+            const selected = TABLE_OPTIONS.find(o => o.value === tableView);
+            return (
+              <div className="relative" ref={dropRef}>
+                <button
+                  onClick={() => setDropOpen(v => !v)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-bg-subtle text-sm font-medium text-text hover:bg-bg-hover focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+                >
+                  {selected?.label || "Select"}
+                  <span className={`material-symbols-outlined text-[16px] transition-transform ${dropOpen ? "rotate-180" : ""}`}>expand_more</span>
+                </button>
+                {dropOpen && (
+                  <div className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg border border-border bg-bg-subtle shadow-xl z-50 overflow-hidden" style={{ animation: "dropdownFadeIn 150ms ease-out" }}>
+                    {TABLE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setTableView(opt.value); setDropOpen(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          tableView === opt.value
+                            ? "bg-primary text-white font-medium"
+                            : "text-text-muted hover:bg-bg-hover hover:text-text"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <style jsx>{`@keyframes dropdownFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+              </div>
+            );
+          })()}
           <div className="flex items-center gap-1 bg-bg-subtle rounded-lg p-1 border border-border">
             <button
               onClick={() => setViewMode("costs")}

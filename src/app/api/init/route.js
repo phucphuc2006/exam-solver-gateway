@@ -1,7 +1,15 @@
-// Auto-initialize cloud sync when server starts
-import "@/lib/initCloudSync";
-
-// This API route is called automatically to initialize sync
 export async function GET() {
+  const [{ ensureAppInitialized }, { ensureOutboundProxyInitialized }, { initConsoleLogCapture }] = await Promise.all([
+    import("@/lib/initCloudSync"),
+    import("@/lib/network/initOutboundProxy"),
+    import("@/lib/consoleLogBuffer"),
+  ]);
+
+  initConsoleLogCapture();
+  await Promise.all([
+    ensureAppInitialized(),
+    ensureOutboundProxyInitialized(),
+  ]);
+
   return new Response("Initialized", { status: 200 });
 }

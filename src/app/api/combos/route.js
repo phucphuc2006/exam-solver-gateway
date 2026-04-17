@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getCombos, createCombo, getComboByName } from "@/lib/localDb";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +8,7 @@ const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 // GET /api/combos - Get all combos
 export async function GET() {
   try {
+    const { getCombos } = await import("@/lib/localDb");
     const combos = await getCombos();
     return NextResponse.json({ combos });
   } catch (error) {
@@ -20,6 +20,7 @@ export async function GET() {
 // POST /api/combos - Create new combo
 export async function POST(request) {
   try {
+    const { createCombo, getComboByName } = await import("@/lib/localDb");
     const body = await request.json();
     const { name, models } = body;
 

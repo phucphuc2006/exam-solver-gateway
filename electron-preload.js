@@ -1,5 +1,5 @@
 /**
- * Exam Solver AI Gateway - Electron Preload Script
+ * NexusAI Gateway - Electron Preload Script
  * Provides a secure bridge between the renderer and main process
  */
 
@@ -18,4 +18,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Updater
   checkForUpdate: () => ipcRenderer.send("check-update"),
   onUpdateStatus: (callback) => ipcRenderer.on("update-status", (_e, status) => callback(status)),
+
+  // Launch at login
+  getLoginItemSettings: () => ipcRenderer.invoke("get-login-item-settings"),
+  setLoginItemSettings: (openAtLogin) => ipcRenderer.invoke("set-login-item-settings", openAtLogin),
+
+  // ChatGPT Web bridge
+  chatgptWebLogin: () => ipcRenderer.invoke("chatgpt-web-login"),
+  chatgptWebClearSession: () => ipcRenderer.invoke("chatgpt-web-clear-session"),
 });

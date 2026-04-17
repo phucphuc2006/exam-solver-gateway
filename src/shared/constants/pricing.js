@@ -1,4 +1,4 @@
-// Default pricing rates for AI models — Exam Solver AI Gateway
+// Default pricing rates for AI models — NexusAI Gateway
 // All rates are in dollars per million tokens ($/1M tokens)
 // Only keeps: Codex (cx), Kiro (kr), OpenAI (openai)
 
@@ -200,3 +200,10 @@ export const DEFAULT_FALLBACK_PRICING = {
   reasoning: 12.00,
   cache_creation: 2.00
 };
+
+/**
+ * Get default pricing
+ */
+export function getDefaultPricing() {
+  return JSON.parse(JSON.stringify(DEFAULT_PRICING));
+}

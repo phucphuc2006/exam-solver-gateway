@@ -60,19 +60,41 @@ export function resolveProviderAlias(aliasOrId) {
   return ALIAS_TO_PROVIDER_ID[aliasOrId] || aliasOrId;
 }
 
+function isKnownProviderSegment(segment) {
+  return typeof segment === "string"
+    && Object.prototype.hasOwnProperty.call(ALIAS_TO_PROVIDER_ID, segment);
+}
+
+function normalizeModelNamespace(modelStr) {
+  if (typeof modelStr !== "string") return modelStr;
+  const trimmed = modelStr.trim();
+  const parts = trimmed.split("/");
+
+  if (parts.length >= 3) {
+    const [namespace, providerOrAlias] = parts;
+    if (!isKnownProviderSegment(namespace) && isKnownProviderSegment(providerOrAlias)) {
+      return parts.slice(1).join("/");
+    }
+  }
+
+  return trimmed;
+}
+
 /**
  * Parse model string: "alias/model" or "provider/model" or just alias
  */
 export function parseModel(modelStr) {
-  if (!modelStr) {
+  const normalizedModelStr = normalizeModelNamespace(modelStr);
+
+  if (!normalizedModelStr) {
     return { provider: null, model: null, isAlias: false, providerAlias: null };
   }
 
   // Check if standard format: provider/model or alias/model
-  if (modelStr.includes("/")) {
-    const firstSlash = modelStr.indexOf("/");
-    const providerOrAlias = modelStr.slice(0, firstSlash);
-    const model = modelStr.slice(firstSlash + 1);
+  if (normalizedModelStr.includes("/")) {
+    const firstSlash = normalizedModelStr.indexOf("/");
+    const providerOrAlias = normalizedModelStr.slice(0, firstSlash);
+    const model = normalizedModelStr.slice(firstSlash + 1);
     const provider = resolveProviderAlias(providerOrAlias);
     return { provider, model, isAlias: false, providerAlias: providerOrAlias };
   }
@@ -80,7 +102,7 @@ export function parseModel(modelStr) {
   // Alias format (model alias, not provider alias)
   return {
     provider: null,
-    model: modelStr,
+    model: normalizedModelStr,
     isAlias: true,
     providerAlias: null,
   };
@@ -98,12 +120,13 @@ export function resolveModelAliasFromMap(alias, aliases) {
   if (!resolved) return null;
 
   // Resolved value is "provider/model" format
-  if (typeof resolved === "string" && resolved.includes("/")) {
-    const firstSlash = resolved.indexOf("/");
-    const providerOrAlias = resolved.slice(0, firstSlash);
+  const normalizedResolved = normalizeModelNamespace(resolved);
+  if (typeof normalizedResolved === "string" && normalizedResolved.includes("/")) {
+    const firstSlash = normalizedResolved.indexOf("/");
+    const providerOrAlias = normalizedResolved.slice(0, firstSlash);
     return {
       provider: resolveProviderAlias(providerOrAlias),
-      model: resolved.slice(firstSlash + 1),
+      model: normalizedResolved.slice(firstSlash + 1),
     };
   }
 

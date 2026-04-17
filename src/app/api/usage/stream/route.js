@@ -1,72 +1,70 @@
-import { getUsageStats, statsEmitter, getActiveRequests } from "@/lib/usageDb";
+import { statsEmitter, getActiveRequests } from "@/lib/usageDb";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request) {
   const encoder = new TextEncoder();
-  const state = { closed: false, keepalive: null, send: null, sendPending: null, cachedStats: null };
+  const state = { closed: false, keepalive: null, flushing: false, flushAgain: false };
+  let cleanup = () => {};
 
   const stream = new ReadableStream({
     async start(controller) {
-      // Full stats refresh (heavy) + immediate lightweight push
-      state.send = async () => {
+      let scheduleFlush = () => {};
+
+      cleanup = () => {
         if (state.closed) return;
+        state.closed = true;
+        statsEmitter.off("update", scheduleFlush);
+        statsEmitter.off("pending", scheduleFlush);
+        clearInterval(state.keepalive);
+      };
+
+      const flush = async () => {
+        if (state.closed || state.flushing) return;
+        state.flushing = true;
+
         try {
-          // Push lightweight update immediately so UI reflects changes fast
-          if (state.cachedStats) {
-            const { activeRequests, recentRequests, errorProvider } = await getActiveRequests();
-            const quickStats = { ...state.cachedStats, activeRequests, recentRequests, errorProvider };
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(quickStats)}\n\n`));
-          }
-          // Then do full recalc and update cache
-          const stats = await getUsageStats();
-          state.cachedStats = stats;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(stats)}\n\n`));
+          do {
+            state.flushAgain = false;
+            const snapshot = await getActiveRequests();
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshot)}\n\n`));
+          } while (!state.closed && state.flushAgain);
         } catch {
-          state.closed = true;
-          statsEmitter.off("update", state.send);
-          statsEmitter.off("pending", state.sendPending);
-          clearInterval(state.keepalive);
+          cleanup();
+        } finally {
+          state.flushing = false;
         }
       };
 
-      // Lightweight push: only refresh activeRequests + recentRequests on pending changes
-      state.sendPending = async () => {
-        if (state.closed || !state.cachedStats) return;
-        try {
-          const { activeRequests, recentRequests, errorProvider } = await getActiveRequests();
-          const stats = { ...state.cachedStats, activeRequests, recentRequests, errorProvider };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(stats)}\n\n`));
-        } catch {
-          state.closed = true;
-          statsEmitter.off("update", state.send);
-          statsEmitter.off("pending", state.sendPending);
-          clearInterval(state.keepalive);
+      scheduleFlush = () => {
+        if (state.closed) return;
+        if (state.flushing) {
+          state.flushAgain = true;
+          return;
         }
+        void flush();
       };
 
-      await state.send();
+      request?.signal?.addEventListener("abort", cleanup, { once: true });
+
+      scheduleFlush();
       console.log(`[SSE] Client connected | listeners=${statsEmitter.listenerCount("update") + 1}`);
 
-      statsEmitter.on("update", state.send);
-      statsEmitter.on("pending", state.sendPending);
+      statsEmitter.on("update", scheduleFlush);
+      statsEmitter.on("pending", scheduleFlush);
 
       state.keepalive = setInterval(() => {
         if (state.closed) { clearInterval(state.keepalive); return; }
         try {
           controller.enqueue(encoder.encode(": ping\n\n"));
         } catch {
-          state.closed = true;
-          clearInterval(state.keepalive);
+          cleanup();
         }
       }, 25000);
     },
 
     cancel() {
-      state.closed = true;
-      statsEmitter.off("update", state.send);
-      statsEmitter.off("pending", state.sendPending);
-      clearInterval(state.keepalive);
+      cleanup();
       console.log("[SSE] Client disconnected");
     },
   });

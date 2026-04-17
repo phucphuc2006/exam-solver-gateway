@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireAuthenticatedAdmin, requireBootstrapComplete } from "@/lib/adminAuth";
+import { enforceRateLimit } from "@/lib/rateLimit";
 import { getProviderConnections } from "@/models";
 import {
   FREE_PROVIDERS,
@@ -41,6 +43,21 @@ function isCompatibleProvider(providerId) {
 
 // POST /api/providers/test-batch - Test multiple connections by group
 export async function POST(request) {
+  const bootstrapResponse = await requireBootstrapComplete(request);
+  if (bootstrapResponse) return bootstrapResponse;
+
+  const authResponse = await requireAuthenticatedAdmin(request);
+  if (authResponse) return authResponse;
+
+  const limited = enforceRateLimit(
+    request,
+    { scope: "providers.test.batch", limit: 3, windowMs: 60_000 },
+    "Too many batch test attempts",
+  );
+  if (limited.response) {
+    return limited.response;
+  }
+
   try {
     const body = await request.json();
     const { mode, providerId } = body;

@@ -68,3 +68,25 @@ README1.md
 deploy*.sh
 ecosystem.config.*
 
+# Rust build artifacts
+bridge-rs/target/
+
+# browser-extension build
+browser-extension/dist/
+
+# temp/debug files
+*.db
+*.log
+tmp_*
+tmp-*
+build_output.log
+usage_debug.txt
+dump_*.js
+finder.js
+test_format.js
+gemini_*.html
+gemini_*.json
+gemini_*.txt
+test_sse.log
+*.original.bak.js
+

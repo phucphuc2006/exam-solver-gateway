@@ -2,7 +2,7 @@
  * Token Usage Tracking - Extract, normalize, estimate and log token usage
  */
 
-import { saveRequestUsage, appendRequestLog } from "@/lib/usageDb.js";
+import { saveRequestUsage, appendRequestLog } from "@/lib/usageDb/index.js";
 import { FORMATS } from "../translator/formats.js";
 
 // ANSI color codes
@@ -17,6 +17,25 @@ export const COLORS = {
 
 // Buffer tokens to prevent context errors
 const BUFFER_TOKENS = 2000;
+const MIN_REASONING_GAP_TOKENS = 32;
+const MIN_REASONING_GAP_RATIO = 0.15;
+
+function getReasoningTokens(usage) {
+  if (!usage || typeof usage !== "object") return 0;
+  const candidates = [
+    usage.reasoning_tokens,
+    usage.output_tokens_details?.reasoning_tokens,
+    usage.completion_tokens_details?.reasoning_tokens,
+    usage.thoughtsTokenCount,
+  ];
+
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+
+  return 0;
+}
 
 // Get HH:MM:SS timestamp
 function getTimeString() {
@@ -128,7 +147,7 @@ export function normalizeUsage(usage) {
   assignNumber("cache_read_input_tokens", usage?.cache_read_input_tokens);
   assignNumber("cache_creation_input_tokens", usage?.cache_creation_input_tokens);
   assignNumber("cached_tokens", usage?.cached_tokens);
-  assignNumber("reasoning_tokens", usage?.reasoning_tokens);
+  assignNumber("reasoning_tokens", getReasoningTokens(usage));
 
   if (Object.keys(normalized).length === 0) return null;
   return normalized;
@@ -146,7 +165,8 @@ export function hasValidUsage(usage) {
   const tokenFields = [
     "prompt_tokens", "completion_tokens", "total_tokens",  // OpenAI
     "input_tokens", "output_tokens",                        // Claude
-    "promptTokenCount", "candidatesTokenCount"              // Gemini
+    "promptTokenCount", "candidatesTokenCount",             // Gemini
+    "reasoning_tokens", "thoughtsTokenCount"
   ];
 
   for (const field of tokenFields) {
@@ -181,7 +201,7 @@ export function extractUsage(chunk) {
       prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
       completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
       cached_tokens: usage.input_tokens_details?.cached_tokens,
-      reasoning_tokens: usage.output_tokens_details?.reasoning_tokens
+      reasoning_tokens: usage.reasoning_tokens || usage.output_tokens_details?.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens
     });
   }
 
@@ -191,7 +211,7 @@ export function extractUsage(chunk) {
       prompt_tokens: chunk.usage.prompt_tokens,
       completion_tokens: chunk.usage.completion_tokens || 0,
       cached_tokens: chunk.usage.prompt_tokens_details?.cached_tokens,
-      reasoning_tokens: chunk.usage.completion_tokens_details?.reasoning_tokens
+      reasoning_tokens: getReasoningTokens(chunk.usage)
     });
   }
 
@@ -237,6 +257,97 @@ export function estimateInputTokens(body) {
 export function estimateOutputTokens(contentLength) {
   if (!contentLength || contentLength <= 0) return 0;
   return Math.max(1, Math.floor(contentLength / 4));
+}
+
+function getEffortLevel(body) {
+  if (!body || typeof body !== "object") return null;
+
+  const effort = body.reasoning?.effort || body.reasoning_effort || null;
+  return typeof effort === "string" ? effort.toLowerCase() : null;
+}
+
+export function inferReasoningUsage({ usage, body, content = "", thinking = "" }) {
+  if (!usage || typeof usage !== "object") return usage;
+
+  const effort = getEffortLevel(body);
+  if (!effort || effort === "none") {
+    return usage;
+  }
+
+  const explicitReasoning = getReasoningTokens(usage);
+  if (explicitReasoning > 0) {
+    return usage;
+  }
+
+  const completionTokens = Number(
+    usage.completion_tokens ??
+    usage.output_tokens ??
+    0
+  ) || 0;
+
+  if (completionTokens <= 0) {
+    return usage;
+  }
+
+  const contentLength = typeof content === "string" ? content.length : 0;
+  const visibleCompletionTokens = estimateOutputTokens(contentLength);
+  const hiddenGap = Math.max(0, completionTokens - visibleCompletionTokens);
+  const gapRatio = completionTokens > 0 ? hiddenGap / completionTokens : 0;
+  const thinkingLength = typeof thinking === "string" ? thinking.length : 0;
+
+  const shouldInfer =
+    hiddenGap >= MIN_REASONING_GAP_TOKENS &&
+    gapRatio >= MIN_REASONING_GAP_RATIO &&
+    (
+      thinkingLength > 0 ||
+      effort === "medium" ||
+      effort === "high" ||
+      effort === "xhigh"
+    );
+
+  if (!shouldInfer) {
+    return usage;
+  }
+
+  const normalized = { ...usage };
+  const visibleTokens = Math.max(1, visibleCompletionTokens);
+
+  if (normalized.completion_tokens !== undefined) {
+    normalized.completion_tokens = visibleTokens;
+  }
+  if (normalized.output_tokens !== undefined) {
+    normalized.output_tokens = visibleTokens;
+  }
+
+  normalized.reasoning_tokens = hiddenGap;
+
+  if (normalized.completion_tokens_details && typeof normalized.completion_tokens_details === "object") {
+    normalized.completion_tokens_details = {
+      ...normalized.completion_tokens_details,
+      reasoning_tokens: hiddenGap,
+    };
+  } else {
+    normalized.completion_tokens_details = { reasoning_tokens: hiddenGap };
+  }
+
+  if (normalized.output_tokens_details && typeof normalized.output_tokens_details === "object") {
+    normalized.output_tokens_details = {
+      ...normalized.output_tokens_details,
+      reasoning_tokens: hiddenGap,
+    };
+  }
+
+  const promptTokens = Number(
+    normalized.prompt_tokens ??
+    normalized.input_tokens ??
+    0
+  ) || 0;
+
+  if (normalized.total_tokens !== undefined || promptTokens > 0) {
+    normalized.total_tokens = promptTokens + visibleTokens + hiddenGap;
+  }
+
+  return normalized;
 }
 
 /**
@@ -307,7 +418,7 @@ export function logUsage(provider, usage, model = null, connectionId = null, api
   const cacheCreation = usage.cache_creation_input_tokens;
   if (cacheCreation) msg += ` | cache_create=${cacheCreation}`;
 
-  const reasoning = usage.reasoning_tokens;
+  const reasoning = getReasoningTokens(usage);
   if (reasoning) msg += ` | reasoning=${reasoning}`;
 
   console.log(msg);

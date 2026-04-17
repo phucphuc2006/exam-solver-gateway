@@ -1,4 +1,4 @@
-# Exam Solver AI Gateway - Desktop Build Script
+# NexusAI Gateway - Desktop Build Script
 # Creates a Windows installer (.exe) using Electron Builder
 
 $ErrorActionPreference = "Stop"
@@ -6,7 +6,7 @@ $ProjectRoot = $PSScriptRoot
 $Version = (Get-Content (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
 
 Write-Host ""
-Write-Host "  Building Exam Solver Gateway Desktop v$Version" -ForegroundColor Cyan
+Write-Host "  Building NexusAI Gateway Desktop v$Version" -ForegroundColor Cyan
 Write-Host ""
 
 # ─── Step 1: Build Next.js ────────────────────────────────────

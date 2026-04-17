@@ -1,4 +1,4 @@
-import { saveRequestUsage, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
+import { saveRequestUsage, appendRequestLog, saveRequestDetail } from "@/lib/usageDb/index.js";
 import { COLORS } from "../../utils/stream.js";
 
 const OPTIONAL_PARAMS = [
@@ -11,6 +11,23 @@ const OPTIONAL_PARAMS = [
   "n", "logprobs", "top_logprobs", "logit_bias",
   "user", "parallel_tool_calls"
 ];
+
+function getReasoningTokens(usage) {
+  if (!usage || typeof usage !== "object") return 0;
+  const candidates = [
+    usage.reasoning_tokens,
+    usage.output_tokens_details?.reasoning_tokens,
+    usage.completion_tokens_details?.reasoning_tokens,
+    usage.thoughtsTokenCount,
+  ];
+
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  }
+
+  return 0;
+}
 
 export function extractRequestConfig(body, stream) {
   const config = { messages: body.messages || [], model: body.model, stream };
@@ -39,7 +56,7 @@ export function extractUsageFromResponse(responseBody) {
       prompt_tokens: responseBody.usage.prompt_tokens || 0,
       completion_tokens: responseBody.usage.completion_tokens || 0,
       cached_tokens: responseBody.usage.prompt_tokens_details?.cached_tokens,
-      reasoning_tokens: responseBody.usage.completion_tokens_details?.reasoning_tokens
+      reasoning_tokens: getReasoningTokens(responseBody.usage)
     };
   }
 
@@ -77,17 +94,20 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
 
   const inTokens = tokens.input_tokens ?? tokens.prompt_tokens ?? 0;
   const outTokens = tokens.output_tokens ?? tokens.completion_tokens ?? 0;
+  const reasoningTokens = getReasoningTokens(tokens);
 
-  if (inTokens === 0 && outTokens === 0) return;
-
+  if (inTokens === 0 && outTokens === 0 && reasoningTokens === 0) return;
   const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const accountSuffix = connectionId ? ` | account=${connectionId.slice(0, 8)}...` : "";
-  console.log(`${COLORS.green}[${time}] 📊 [${label}] ${provider.toUpperCase()} | in=${inTokens} | out=${outTokens}${accountSuffix}${COLORS.reset}`);
+  const reasoningSuffix = reasoningTokens > 0 ? ` | reasoning=${reasoningTokens}` : "";
+  console.log(`${COLORS.green}[${time}] 📊 [${label}] ${provider.toUpperCase()} | in=${inTokens} | out=${outTokens}${reasoningSuffix}${accountSuffix}${COLORS.reset}`);
 
-  // Normalize to OpenAI token shape for storage
+  // Normalize to OpenAI token shape for storage (now includes reasoning_tokens)
   const normalized = {
     prompt_tokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
-    completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0
+    completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0,
+    reasoning_tokens: reasoningTokens,
+    cached_tokens: tokens.cached_tokens || tokens.cache_read_input_tokens || 0,
   };
 
   saveRequestUsage({

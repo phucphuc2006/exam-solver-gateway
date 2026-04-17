@@ -5,6 +5,7 @@ import Card from "@/shared/components/Card";
 import Button from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import Pagination from "@/shared/components/Pagination";
+import ProviderIcon from "@/shared/components/ProviderIcon";
 import { cn } from "@/shared/utils/cn";
 import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
 
@@ -164,8 +165,12 @@ export default function RequestDetailsTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Card padding="md">
-        <div className="flex flex-wrap gap-4">
+      {/* Glassmorphic Filters */}
+      <Card padding="md" className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 backdrop-blur-md relative overflow-hidden">
+        {/* Subtle glowing effect */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-[80px] -z-10 pointer-events-none" />
+        
+        <div className="flex flex-wrap items-end gap-5 relative z-10">
           <div className="flex flex-col gap-2">
             <label htmlFor="provider-filter" className="text-sm font-medium text-text-main">Provider</label>
             <select
@@ -173,9 +178,9 @@ export default function RequestDetailsTab() {
               value={filters.provider}
               onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
-                "cursor-pointer min-w-[150px]"
+                "h-9 px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-black/50 backdrop-blur-sm",
+                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all",
+                "cursor-pointer min-w-[180px] shadow-sm hover:border-black/20 dark:hover:border-white/20"
               )}
             >
               <option value="">All Providers</option>
@@ -195,8 +200,8 @@ export default function RequestDetailsTab() {
               value={filters.startDate}
               onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
+                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-black/50 backdrop-blur-sm",
+                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all shadow-sm hover:border-black/20 dark:hover:border-white/20"
               )}
             />
           </div>
@@ -209,8 +214,8 @@ export default function RequestDetailsTab() {
               value={filters.endDate}
               onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
-                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
+                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-black/50 backdrop-blur-sm",
+                "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/50 transition-all shadow-sm hover:border-black/20 dark:hover:border-white/20"
               )}
             />
           </div>
@@ -262,39 +267,67 @@ export default function RequestDetailsTab() {
                 details.map((detail, index) => (
                   <tr
                     key={`${detail.id}-${index}`}
-                    className="border-b border-black/5 dark:border-white/5 last:border-b-0 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
+                    className="border-b border-black/5 dark:border-white/5 last:border-b-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors group cursor-pointer"
+                    onClick={() => handleViewDetail(detail)}
                   >
                     <td className="p-4 text-sm text-text-main">
-                      {new Date(detail.timestamp).toLocaleString()}
+                      <div className="flex items-center gap-1.5 opacity-80">
+                        <span className="material-symbols-outlined text-[16px]">schedule</span>
+                        {new Date(detail.timestamp).toLocaleString()}
+                      </div>
                     </td>
                     <td className="p-4 text-sm text-text-main font-mono">
-                      {detail.model}
+                      <div className="inline-flex items-center px-2 py-1 rounded-md bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/10 text-xs">
+                        {detail.model}
+                      </div>
                     </td>
                     <td className="p-4 text-sm text-text-main">
-                       <span className="font-medium">
-                         {getProviderName(detail.provider, providerNameCache)}
-                       </span>
+                       <div className="flex items-center gap-2">
+                         <ProviderIcon providerId={detail.provider} className="w-5 h-5 rounded-sm object-contain" />
+                         <span className="font-semibold tracking-wide text-xs">
+                           {getProviderName(detail.provider, providerNameCache)}
+                         </span>
+                       </div>
                      </td>
-                    <td className="p-4 text-sm text-text-main text-right font-mono">
+                    <td className="p-4 text-sm text-right font-mono text-cyan-600 dark:text-cyan-400">
                       {detail.tokens?.prompt_tokens?.toLocaleString() || 0}
                     </td>
-                    <td className="p-4 text-sm text-text-main text-right font-mono">
+                    <td className="p-4 text-sm text-right font-mono text-purple-600 dark:text-purple-400">
                       {detail.tokens?.completion_tokens?.toLocaleString() || 0}
                     </td>
-                    <td className="p-4 text-sm text-text-muted">
-                      <div className="flex flex-col gap-0.5">
-                        <div>TTFT: <span className="font-mono">{detail.latency?.ttft || 0}ms</span></div>
-                        <div>Total: <span className="font-mono">{detail.latency?.total || 0}ms</span></div>
+                    <td className="p-4 text-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col gap-0.5 w-[70px]">
+                          <span className="text-[10px] uppercase text-text-muted">TTFT</span>
+                          <span className={cn(
+                            "font-mono font-medium rounded px-1.5 py-0.5 text-xs max-w-min",
+                            (detail.latency?.ttft || 0) < 1000 ? "bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-500/30" :
+                            (detail.latency?.ttft || 0) < 3000 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30" :
+                            "bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30"
+                          )}>
+                            {detail.latency?.ttft || 0}ms
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-0.5 w-[70px]">
+                          <span className="text-[10px] uppercase text-text-muted">Total</span>
+                          <span className={cn(
+                            "font-mono font-medium rounded px-1.5 py-0.5 text-xs inline-block max-w-[80px]",
+                            (detail.latency?.total || 0) < 2000 ? "bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-500/30" :
+                            (detail.latency?.total || 0) < 5000 ? "bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30" :
+                            "bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30"
+                          )}>
+                            {detail.latency?.total || 0}ms
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="p-4 text-center">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewDetail(detail)}
+                      <button
+                        className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 hover:text-primary transition-all mx-auto group-hover:scale-110"
+                        title="View Details"
                       >
-                        Detail
-                      </Button>
+                        <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -324,49 +357,67 @@ export default function RequestDetailsTab() {
       >
         {selectedDetail && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-text-muted">ID:</span>{" "}
-                <span className="text-text-main font-mono">{selectedDetail.id}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Box 1: Core Info */}
+              <div className="p-4 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 space-y-3">
+                <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1.5 mb-2"><span className="material-symbols-outlined text-[16px]">info</span> Metadata</h3>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-text-muted">ID:</span>
+                  <span className="text-text-main font-mono text-xs">{selectedDetail.id}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-text-muted">Timestamp:</span>
+                  <span className="text-text-main">{new Date(selectedDetail.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                   <span className="text-text-muted">Provider:</span>
+                   <div className="flex items-center gap-2">
+                     <ProviderIcon providerId={selectedDetail.provider} className="w-5 h-5 rounded-sm object-contain" />
+                     <span className="text-text-main font-semibold text-xs tracking-wider border border-black/10 dark:border-white/10 px-2 shadow-sm py-0.5 bg-surface rounded-md">{getProviderName(selectedDetail.provider, providerNameCache)}</span>
+                   </div>
+                 </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-text-muted">Model:</span>
+                  <span className="text-primary font-mono text-xs font-semibold px-2 py-0.5 bg-primary/10 rounded-md border border-primary/20">{selectedDetail.model}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-text-muted">Status:</span>
+                  <span className={cn(
+                    "font-medium text-xs px-2 py-0.5 rounded-md border border-current shadow-sm",
+                    selectedDetail.status === "success" ? "text-green-600 bg-green-500/10 dark:text-green-400" : "text-red-600 bg-red-500/10 dark:text-red-400"
+                  )}>
+                    {selectedDetail.status}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-text-muted">Timestamp:</span>{" "}
-                <span className="text-text-main">{new Date(selectedDetail.timestamp).toLocaleString()}</span>
-              </div>
-              <div>
-                 <span className="text-text-muted">Provider:</span>{" "}
-                 <span className="text-text-main font-medium">{getProviderName(selectedDetail.provider, providerNameCache)}</span>
-               </div>
-              <div>
-                <span className="text-text-muted">Model:</span>{" "}
-                <span className="text-text-main font-mono">{selectedDetail.model}</span>
-              </div>
-              <div>
-                <span className="text-text-muted">Status:</span>{" "}
-                <span className={cn(
-                  "font-medium",
-                  selectedDetail.status === "success" ? "text-green-600" : "text-red-600"
-                )}>
-                  {selectedDetail.status}
-                </span>
-              </div>
-              <div>
-                <span className="text-text-muted">Latency:</span>{" "}
-                <span className="text-text-main font-mono">
-                  TTFT {selectedDetail.latency?.ttft || 0}ms / Total {selectedDetail.latency?.total || 0}ms
-                </span>
-              </div>
-              <div>
-                <span className="text-text-muted">Input Tokens:</span>{" "}
-                <span className="text-text-main font-mono">
-                  {selectedDetail.tokens?.prompt_tokens?.toLocaleString() || 0}
-                </span>
-              </div>
-              <div>
-                <span className="text-text-muted">Output Tokens:</span>{" "}
-                <span className="text-text-main font-mono">
-                  {selectedDetail.tokens?.completion_tokens?.toLocaleString() || 0}
-                </span>
+              
+              {/* Box 2: Metrics */}
+              <div className="p-4 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 space-y-3 relative overflow-hidden">
+                <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary/10 blur-[40px] pointer-events-none rounded-full" />
+                <h3 className="text-xs uppercase tracking-wider font-semibold text-text-muted flex items-center gap-1.5 mb-2"><span className="material-symbols-outlined text-[16px]">speed</span> Analytics</h3>
+                
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-text-muted flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">timer</span> Latency:</span>
+                  <div className="flex gap-2">
+                    <span className="text-xs bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono border border-black/10 dark:border-white/10">TTFT <span className={cn((selectedDetail.latency?.ttft || 0) > 2000 ? "text-red-500" : (selectedDetail.latency?.ttft || 0) > 1000 ? "text-amber-500" : "text-green-500")}>{selectedDetail.latency?.ttft || 0}ms</span></span>
+                    <span className="text-xs bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono border border-black/10 dark:border-white/10">Total <span className={cn((selectedDetail.latency?.total || 0) > 4000 ? "text-red-500" : (selectedDetail.latency?.total || 0) > 2000 ? "text-amber-500" : "text-green-500")}>{selectedDetail.latency?.total || 0}ms</span></span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 mt-2 w-full pt-2">
+                  <div className="bg-surface border border-black/5 dark:border-white/5 rounded-lg p-3 text-center shadow-sm">
+                    <span className="text-[10px] uppercase text-text-muted block mb-1">Input Tokens</span>
+                    <span className="text-lg font-mono font-semibold text-cyan-600 dark:text-cyan-400">
+                      {selectedDetail.tokens?.prompt_tokens?.toLocaleString() || 0}
+                    </span>
+                  </div>
+                  <div className="bg-surface border border-black/5 dark:border-white/5 rounded-lg p-3 text-center shadow-sm">
+                    <span className="text-[10px] uppercase text-text-muted block mb-1">Output Tokens</span>
+                    <span className="text-lg font-mono font-semibold text-purple-600 dark:text-purple-400">
+                      {selectedDetail.tokens?.completion_tokens?.toLocaleString() || 0}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
             

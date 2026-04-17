@@ -5,10 +5,7 @@ export const config = {
     "/",
     "/dashboard/:path*",
     "/api/shutdown",
-    "/api/settings/:path*",
-    "/api/keys",
-    "/api/keys/:path*",
-    "/api/providers/client",
+    "/api/settings/database",
     "/api/provider-nodes/validate",
   ],
 };

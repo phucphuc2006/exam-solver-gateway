@@ -70,6 +70,11 @@ export class CodexExecutor extends BaseExecutor {
         // Strip suffix from model name for actual API call
         body.model = body.model.replace(`-${level}`, '');
         break;
+      } else if (model.includes(`(${level})`)) {
+        modelEffort = level;
+        // Strip suffix from model name for actual API call
+        body.model = body.model.replace(`(${level})`, '').trim();
+        break;
       }
     }
 
@@ -84,7 +89,9 @@ export class CodexExecutor extends BaseExecutor {
 
     // Include reasoning encrypted content (required by Codex backend for reasoning models)
     if (body.reasoning && body.reasoning.effort && body.reasoning.effort !== 'none') {
-      body.include = ["reasoning.encrypted_content"];
+      const include = new Set(Array.isArray(body.include) ? body.include : []);
+      include.add("reasoning.encrypted_content");
+      body.include = Array.from(include);
     }
 
     // Remove unsupported parameters for Codex API
@@ -97,6 +104,7 @@ export class CodexExecutor extends BaseExecutor {
     delete body.n;
     delete body.seed;
     delete body.max_tokens;
+    delete body.max_completion_tokens;
     delete body.user; // Cursor sends this but Codex doesn't support it
     delete body.prompt_cache_retention; // Cursor sends this but Codex doesn't support it
     delete body.metadata; // Cursor sends this but Codex doesn't support it

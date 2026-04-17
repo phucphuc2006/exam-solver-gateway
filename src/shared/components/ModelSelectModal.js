@@ -1,16 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
 import PropTypes from "prop-types";
 import Modal from "./Modal";
-import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
-
-// Provider order: OAuth first, then API Key (matches dashboard/providers)
-const PROVIDER_ORDER = [
-  ...Object.keys(OAUTH_PROVIDERS),
-  ...Object.keys(APIKEY_PROVIDERS),
-];
+import { useModelSelectModal } from "./useModelSelectModal";
 
 export default function ModelSelectModal({
   isOpen,
@@ -21,191 +13,12 @@ export default function ModelSelectModal({
   title = "Select Model",
   modelAliases = {},
 }) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [combos, setCombos] = useState([]);
-  const [providerNodes, setProviderNodes] = useState([]);
-
-  const fetchCombos = async () => {
-    try {
-      const res = await fetch("/api/combos");
-      if (!res.ok) throw new Error(`Failed to fetch combos: ${res.status}`);
-      const data = await res.json();
-      setCombos(data.combos || []);
-    } catch (error) {
-      console.error("Error fetching combos:", error);
-      setCombos([]);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchCombos();
-  }, [isOpen]);
-
-  const fetchProviderNodes = async () => {
-    try {
-      const res = await fetch("/api/provider-nodes");
-      if (!res.ok) throw new Error(`Failed to fetch provider nodes: ${res.status}`);
-      const data = await res.json();
-      setProviderNodes(data.nodes || []);
-    } catch (error) {
-      console.error("Error fetching provider nodes:", error);
-      setProviderNodes([]);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchProviderNodes();
-  }, [isOpen]);
-
-  const allProviders = useMemo(() => ({ ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS }), []);
-
-  // Group models by provider with priority order
-  const groupedModels = useMemo(() => {
-    const groups = {};
-
-    // Get all active provider IDs from connections
-    const activeConnectionIds = activeProviders.map(p => p.provider);
-
-    // Only show connected providers (including both standard and custom)
-    const providerIdsToShow = new Set([
-      ...activeConnectionIds,  // Only connected providers
-    ]);
-
-    // Sort by PROVIDER_ORDER
-    const sortedProviderIds = [...providerIdsToShow].sort((a, b) => {
-      const indexA = PROVIDER_ORDER.indexOf(a);
-      const indexB = PROVIDER_ORDER.indexOf(b);
-      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
-    });
-
-    sortedProviderIds.forEach((providerId) => {
-      const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
-      const providerInfo = allProviders[providerId] || { name: providerId, color: "#666" };
-      const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
-
-      if (providerInfo.passthroughModels) {
-        const aliasModels = Object.entries(modelAliases)
-          .filter(([, fullModel]) => fullModel.startsWith(`${alias}/`))
-          .map(([aliasName, fullModel]) => ({
-            id: fullModel.replace(`${alias}/`, ""),
-            name: aliasName,
-            value: fullModel,
-          }));
-
-        if (aliasModels.length > 0) {
-          // Check for custom name from providerNodes (for compatible providers)
-          const matchedNode = providerNodes.find(node => node.id === providerId);
-          const displayName = matchedNode?.name || providerInfo.name;
-
-          groups[providerId] = {
-            name: displayName,
-            alias: alias,
-            color: providerInfo.color,
-            models: aliasModels,
-          };
-        }
-      } else if (isCustomProvider) {
-        // Find connection object to get prefix synchronously without waiting for providerNodes fetch
-        const connection = activeProviders.find(p => p.provider === providerId);
-        const matchedNode = providerNodes.find(node => node.id === providerId);
-        const displayName = connection?.name || matchedNode?.name || providerInfo.name;
-        const nodePrefix = connection?.providerSpecificData?.prefix || matchedNode?.prefix || providerId;
-
-        // Aliases are stored using the raw providerId as key (e.g. "openai-compatible-chat-<uuid>/glm-4.7"),
-        // so we must filter by providerId, not by the display prefix.
-        const nodeModels = Object.entries(modelAliases)
-          .filter(([, fullModel]) => fullModel.startsWith(`${providerId}/`))
-          .map(([aliasName, fullModel]) => ({
-            id: fullModel.replace(`${providerId}/`, ""),
-            name: aliasName,
-            value: `${nodePrefix}/${fullModel.replace(`${providerId}/`, "")}`,
-          }));
-
-        // Always show compatible providers that are connected, even with no aliases.
-        // When no aliases exist, show a placeholder so users know it's available.
-        const modelsToShow = nodeModels.length > 0 ? nodeModels : [{
-          id: `__placeholder__${providerId}`,
-          name: `${nodePrefix}/model-id`,
-          value: `${nodePrefix}/model-id`,
-          isPlaceholder: true,
-        }];
-
-        groups[providerId] = {
-          name: displayName,
-          alias: nodePrefix,
-          color: providerInfo.color,
-          models: modelsToShow,
-          isCustom: true,
-          hasModels: nodeModels.length > 0,
-        };
-      } else {
-        const hardcodedModels = getModelsByProviderId(providerId);
-        const hardcodedIds = new Set(hardcodedModels.map((m) => m.id));
-
-        // Custom models user added via "Add Model" button (alias === modelId pattern)
-        const customModels = Object.entries(modelAliases)
-          .filter(([aliasName, fullModel]) =>
-            fullModel.startsWith(`${alias}/`) &&
-            aliasName === fullModel.replace(`${alias}/`, "") &&
-            !hardcodedIds.has(fullModel.replace(`${alias}/`, ""))
-          )
-          .map(([, fullModel]) => {
-            const modelId = fullModel.replace(`${alias}/`, "");
-            return { id: modelId, name: modelId, value: fullModel, isCustom: true };
-          });
-
-        const allModels = [
-          ...hardcodedModels.map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}` })),
-          ...customModels,
-        ];
-
-        if (allModels.length > 0) {
-          groups[providerId] = {
-            name: providerInfo.name,
-            alias: alias,
-            color: providerInfo.color,
-            models: allModels,
-          };
-        }
-      }
-    });
-
-    return groups;
-  }, [activeProviders, modelAliases, allProviders, providerNodes]);
-
-  // Filter combos by search query
-  const filteredCombos = useMemo(() => {
-    if (!searchQuery.trim()) return combos;
-    const query = searchQuery.toLowerCase();
-    return combos.filter(c => c.name.toLowerCase().includes(query));
-  }, [combos, searchQuery]);
-
-  // Filter models by search query
-  const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) return groupedModels;
-
-    const query = searchQuery.toLowerCase();
-    const filtered = {};
-
-    Object.entries(groupedModels).forEach(([providerId, group]) => {
-      const matchedModels = group.models.filter(
-        (m) =>
-          m.name.toLowerCase().includes(query) ||
-          m.id.toLowerCase().includes(query)
-      );
-
-      const providerNameMatches = group.name.toLowerCase().includes(query);
-
-      if (matchedModels.length > 0 || providerNameMatches) {
-        filtered[providerId] = {
-          ...group,
-          models: matchedModels,
-        };
-      }
-    });
-
-    return filtered;
-  }, [groupedModels, searchQuery]);
+  const {
+    searchQuery,
+    setSearchQuery,
+    filteredCombos,
+    filteredGroups,
+  } = useModelSelectModal({ isOpen, activeProviders, modelAliases });
 
   const handleSelect = (model) => {
     onSelect(model);
@@ -245,7 +58,7 @@ export default function ModelSelectModal({
         {/* Combos section - always first */}
         {filteredCombos.length > 0 && (
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 bg-surface py-0.5">
+            <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 bg-surface py-0.5 z-10">
               <span className="material-symbols-outlined text-primary text-[14px]">layers</span>
               <span className="text-xs font-medium text-primary">Combos</span>
               <span className="text-[10px] text-text-muted">({filteredCombos.length})</span>
@@ -277,7 +90,7 @@ export default function ModelSelectModal({
         {Object.entries(filteredGroups).map(([providerId, group]) => (
           <div key={providerId}>
             {/* Provider header */}
-            <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 bg-surface py-0.5">
+            <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 bg-surface py-0.5 z-10">
               <div
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: group.color }}
@@ -353,4 +166,3 @@ ModelSelectModal.propTypes = {
   title: PropTypes.string,
   modelAliases: PropTypes.object,
 };
-

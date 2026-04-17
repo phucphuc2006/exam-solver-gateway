@@ -1,10 +1,10 @@
-# 9Router Architecture
+# NexusAI Gateway Architecture
 
 _Last updated: 2026-02-06_
 
 ## Executive Summary
 
-9Router is a local AI routing gateway and dashboard built on Next.js.
+NexusAI Gateway is a local AI routing gateway and dashboard built on Next.js.
 It provides a single OpenAI-compatible endpoint (`/v1/*`) and routes traffic across multiple upstream providers with translation, fallback, token refresh, and usage tracking.
 
 Core capabilities:
@@ -52,12 +52,12 @@ flowchart LR
         BROWSER[Browser Dashboard]
     end
 
-    subgraph Router[9Router Local Process]
+    subgraph Router[NexusAI Gateway Local Process]
         API[V1 Compatibility API\n/v1/*]
         DASH[Dashboard + Management API\n/api/*]
         CORE[SSE + Translation Core\nopen-sse + src/sse]
-        DB[(db.json)]
-        UDB[(usage.json + log.txt)]
+        DB[(nexusai-gateway.sqlite)]
+        UDB[(legacy JSON backups)]
     end
 
     subgraph Upstreams[Upstream Providers]
@@ -138,14 +138,14 @@ Main flow modules:
 Primary state DB:
 
 - `src/lib/localDb.js`
-- file: `${DATA_DIR}/db.json` (or `~/.9router/db.json` when `DATA_DIR` is unset)
-- entities: providerConnections, providerNodes, modelAliases, combos, apiKeys, settings, pricing
+- file: `${DATA_DIR}/nexusai-gateway.sqlite`
+- entities: provider_connections, provider_nodes, proxy_pools, model_aliases, mitm_aliases, combos, api_keys, settings, pricing_entries, schema_version
 
 Usage DB:
 
 - `src/lib/usageDb.js`
-- files: `~/.9router/usage.json`, `~/.9router/log.txt`
-- note: currently independent from `DATA_DIR`
+- canonical tables: `usage_history`, `request_logs`, `request_details`, `diagnostic_results`
+- legacy files `db.json`, `usage.json`, `request-details.json`, `log.txt` stay under `DATA_DIR` as read-only migration backups
 
 ## 4) Auth + Security Surfaces
 
@@ -377,9 +377,8 @@ erDiagram
 
 Physical storage files:
 
-- main state: `${DATA_DIR}/db.json` (or `~/.9router/db.json`)
-- usage stats: `~/.9router/usage.json`
-- request log lines: `~/.9router/log.txt`
+- canonical state: `${DATA_DIR}/nexusai-gateway.sqlite`
+- legacy backup inputs: `${DATA_DIR}/db.json`, `${DATA_DIR}/usage.json`, `${DATA_DIR}/request-details.json`, `${DATA_DIR}/log.txt`
 - optional translator/request debug sessions: `<repo>/logs/...`
 
 ## Deployment Topology
@@ -391,11 +390,11 @@ flowchart LR
         Browser[Dashboard Browser]
     end
 
-    subgraph ContainerOrProcess[9Router Runtime]
+    subgraph ContainerOrProcess[NexusAI Gateway Runtime]
         Next[Next.js Server\nPORT=20128]
         Core[SSE Core + Executors]
-        MainDB[(db.json)]
-        UsageDB[(usage.json/log.txt)]
+        MainDB[(nexusai-gateway.sqlite)]
+        UsageDB[(usage + diagnostics tables)]
     end
 
     subgraph External[External Services]
@@ -515,15 +514,15 @@ Translations are selected dynamically based on source payload shape and provider
 Runtime visibility sources:
 
 - console logs from `src/sse/utils/logger.js`
-- per-request usage aggregates in `usage.json`
-- textual request status log in `log.txt`
+- per-request usage aggregates in the SQLite `usage_history` table
+- textual request status log in the SQLite `request_logs` table
 - optional deep request/translation logs under `logs/` when `ENABLE_REQUEST_LOGS=true`
 - dashboard usage endpoints (`/api/usage/*`) for UI consumption
 
 ## Security-Sensitive Boundaries
 
 - JWT secret (`JWT_SECRET`) secures dashboard session cookie verification/signing
-- Initial password fallback (`INITIAL_PASSWORD`, default `123456`) must be overridden in real deployments
+- First-run bootstrap is local-only; there is no runtime default password fallback
 - API key HMAC secret (`API_KEY_SECRET`) secures generated local API key format
 - Provider secrets (API keys/tokens) are persisted in local DB and should be protected at filesystem level
 - Cloud sync endpoints rely on API key auth + machine id semantics
@@ -532,7 +531,7 @@ Runtime visibility sources:
 
 Environment variables actively used by code:
 
-- App/auth: `JWT_SECRET`, `INITIAL_PASSWORD`
+- App/auth: `JWT_SECRET`
 - Storage: `DATA_DIR`
 - Security hashing: `API_KEY_SECRET`, `MACHINE_ID_SALT`
 - Logging: `ENABLE_REQUEST_LOGS`
@@ -542,7 +541,7 @@ Environment variables actively used by code:
 
 ## Known Architectural Notes
 
-1. `usageDb` currently stores under `~/.9router` and does not follow `DATA_DIR`.
+1. Canonical runtime persistence now lives in `${DATA_DIR}/nexusai-gateway.sqlite`; legacy JSON files are kept as import backups.
 2. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
 3. Request logger writes full headers/body when enabled; treat log directory as sensitive.
 4. Cloud behavior depends on correct `NEXT_PUBLIC_BASE_URL` and cloud endpoint reachability.

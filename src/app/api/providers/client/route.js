@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { getProviderConnections } from "@/lib/localDb";
 
 // GET /api/providers/client - List all connections for client (includes sensitive fields for sync)
-export async function GET() {
+export async function GET(request) {
+  const { requireAuthenticatedAdmin, requireBootstrapComplete } = await import("@/lib/adminAuth");
+  const bootstrapResponse = await requireBootstrapComplete(request);
+  if (bootstrapResponse) return bootstrapResponse;
+
+  const authResponse = await requireAuthenticatedAdmin(request, { allowLocal: true });
+  if (authResponse) return authResponse;
+
   try {
+    const { getProviderConnections } = await import("@/lib/localDb");
     const connections = await getProviderConnections();
     
     // Include sensitive fields for sync to cloud (only accessible from same origin)

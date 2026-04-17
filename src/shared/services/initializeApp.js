@@ -30,8 +30,14 @@ import os from "os";
   } catch { /* ignore */ }
 })();
 
-// Multiple modules register SIGINT/SIGTERM handlers legitimately
-process.setMaxListeners(20);
+// Dev mode + hot reload can temporarily register multiple legitimate process listeners.
+// Keep the threshold above the previous hard cap so warnings only surface for real leaks.
+if (typeof process.getMaxListeners === "function" && typeof process.setMaxListeners === "function") {
+  const currentMaxListeners = process.getMaxListeners();
+  if (currentMaxListeners < 50) {
+    process.setMaxListeners(50);
+  }
+}
 
 // Use global to survive Next.js hot reload — prevents duplicate intervals
 const g = global.__appSingleton ??= {
@@ -94,6 +100,20 @@ export async function initializeApp() {
 
     // Auto-start MITM if it was enabled before restart
     autoStartMitm();
+
+    // Start Web Bridge Sidecar (Rust bridge) in background
+    import("@/lib/webBridgeSidecar").then(m => {
+      m.ensureWebBridgeSidecarReady().catch(err => {
+        console.log("[InitApp] Web Bridge Sidecar failed:", err.message);
+      });
+    }).catch(() => {});
+
+    // Start Inject Relay WS server for persistent extension connections
+    import("@/lib/injectRelayWs").then(m => {
+      m.startInjectRelayWsServer();
+    }).catch(err => {
+      console.log("[InitApp] Inject Relay WS failed:", err.message);
+    });
   } catch (error) {
     console.error("[InitApp] Error:", error);
   }

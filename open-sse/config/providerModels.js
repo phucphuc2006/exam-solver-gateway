@@ -338,6 +338,65 @@ export const PROVIDER_MODELS = {
     { id: "Qwen/Qwen2.5-Coder-32B-Instruct", name: "Qwen 2.5 Coder 32B" },
     { id: "NousResearch/Hermes-3-Llama-3.1-70B", name: "Hermes 3 70B" },
   ],
+  requesty: [
+    { id: "openai/gpt-4o", name: "GPT-4o (Requesty)" },
+    { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet (Requesty)" },
+    { id: "meta-llama/llama-3-70b-instruct", name: "Llama 3 70B (Requesty)" },
+  ],
+  lepton: [
+    { id: "llama3-1-405b", name: "Llama 3.1 405B (Lepton)" },
+    { id: "llama3-1-70b", name: "Llama 3.1 70B (Lepton)" },
+    { id: "mixtral-8x22b", name: "Mixtral 8x22B (Lepton)" },
+  ],
+  anyscale: [
+    { id: "meta-llama/Meta-Llama-3-70B-Instruct", name: "Llama 3 70B (Anyscale)" },
+    { id: "mistralai/Mixtral-8x22B-Instruct-v0.1", name: "Mixtral 8x22B (Anyscale)" },
+  ],
+  deepinfra: [
+    { id: "meta-llama/Meta-Llama-3.1-405B-Instruct", name: "Llama 3.1 405B (DeepInfra)" },
+    { id: "meta-llama/Meta-Llama-3.1-70B-Instruct", name: "Llama 3.1 70B (DeepInfra)" },
+    { id: "Qwen/Qwen2.5-72B-Instruct", name: "Qwen 2.5 72B (DeepInfra)" },
+  ],
+  sambanova: [
+    { id: "Meta-Llama-3.1-405B-Instruct", name: "Llama 3.1 405B (Sambanova)" },
+    { id: "Meta-Llama-3.1-70B-Instruct", name: "Llama 3.1 70B (Sambanova)" },
+  ],
+  lambda: [
+    { id: "hermes-3-llama-3.1-405b-fp8", name: "Hermes 3 405B (Lambda)" },
+    { id: "llama-3.1-405b-instruct-fp8", name: "Llama 3.1 405B (Lambda)" },
+  ],
+  novita: [
+    { id: "meta-llama/llama-3.1-405b-instruct", name: "Llama 3.1 405B (Novita)" },
+    { id: "meta-llama/llama-3.1-70b-instruct", name: "Llama 3.1 70B (Novita)" },
+  ],
+  baichuan: [
+    { id: "Baichuan4", name: "Baichuan 4" },
+    { id: "Baichuan3-Turbo", name: "Baichuan 3 Turbo" },
+  ],
+  doubao: [
+    { id: "ep-20240521071424-6thqc", name: "Doubao Pro 128k (Volcano)" },
+    { id: "ep-20240521071539-7thqc", name: "Doubao Lite 128k (Volcano)" },
+  ],
+  moonshot: [
+    { id: "moonshot-v1-8k", name: "Moonshot v1 8K" },
+    { id: "moonshot-v1-32k", name: "Moonshot v1 32K" },
+    { id: "moonshot-v1-128k", name: "Moonshot v1 128K" },
+  ],
+  yi: [
+    { id: "yi-lightning", name: "Yi Lightning" },
+    { id: "yi-large", name: "Yi Large" },
+    { id: "yi-vision", name: "Yi Vision" },
+  ],
+  zhipu: [
+    { id: "glm-4-plus", name: "GLM 4 Plus" },
+    { id: "glm-4-0520", name: "GLM 4 (0520)" },
+    { id: "glm-4-air", name: "GLM 4 Air" },
+  ],
+  ernie: [
+    { id: "ernie-4.0-8k-latest", name: "ERNIE 4.0 8K" },
+    { id: "ernie-3.5-8k", name: "ERNIE 3.5 8K" },
+    { id: "ernie-speed-128k", name: "ERNIE Speed 128K" },
+  ],
   ollama: [
     { id: "gpt-oss:120b", name: "GPT OSS 120B" },
     { id: "kimi-k2.5", name: "Kimi K2.5" },
@@ -358,6 +417,16 @@ export const PROVIDER_MODELS = {
     { id: "qwen/qwen3-next-80b-a3b-instruct-maas", name: "Qwen3 Next 80B Instruct (Vertex)" },
     { id: "zai-org/glm-5-maas", name: "GLM-5 (Vertex)" },
   ],
+  amazonq: [
+    { id: "amazon-q-developer", name: "Amazon Q Developer" },
+    { id: "amazon-q-business", name: "Amazon Q Business" }
+  ],
+  gitlab: [
+    { id: "gitlab-duo", name: "GitLab Duo Chat" }
+  ],
+  codebuddy: [
+    { id: "codebuddy-v1", name: "CodeBuddy v1" }
+  ]
 };
 
 // Helper functions

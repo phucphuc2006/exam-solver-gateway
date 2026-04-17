@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getTunnelStatus } from "@/lib/tunnel/tunnelManager";
 
 export async function GET() {
   try {
+    const { getTunnelStatus } = await import("@/lib/tunnel/tunnelManager");
     const status = await getTunnelStatus();
     return NextResponse.json(status);
   } catch (error) {

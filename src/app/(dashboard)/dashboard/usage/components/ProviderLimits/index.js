@@ -13,6 +13,7 @@ const REFRESH_INTERVAL_MS = 60000; // 60 seconds
 
 export default function ProviderLimits() {
   const [connections, setConnections] = useState([]);
+  const [selectedConnections, setSelectedConnections] = useState({});
   const [quotaData, setQuotaData] = useState({});
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -265,16 +266,23 @@ export default function ProviderLimits() {
       conn.authType === "oauth",
   );
 
+  // Group connections by provider
+  const groupedConnections = filteredConnections.reduce((acc, conn) => {
+    if (!acc[conn.provider]) acc[conn.provider] = [];
+    acc[conn.provider].push(conn);
+    return acc;
+  }, {});
+
   // Sort providers by USAGE_SUPPORTED_PROVIDERS order, then alphabetically
-  const sortedConnections = [...filteredConnections].sort((a, b) => {
-    const orderA = USAGE_SUPPORTED_PROVIDERS.indexOf(a.provider);
-    const orderB = USAGE_SUPPORTED_PROVIDERS.indexOf(b.provider);
+  const sortedProviderNames = Object.keys(groupedConnections).sort((a, b) => {
+    const orderA = USAGE_SUPPORTED_PROVIDERS.indexOf(a);
+    const orderB = USAGE_SUPPORTED_PROVIDERS.indexOf(b);
     if (orderA !== orderB) return orderA - orderB;
-    return a.provider.localeCompare(b.provider);
+    return a.localeCompare(b);
   });
 
   // Calculate summary stats
-  const totalProviders = sortedConnections.length;
+  const totalProviders = sortedProviderNames.length;
   const activeWithLimits = Object.values(quotaData).filter(
     (data) => data?.quotas?.length > 0,
   ).length;
@@ -292,7 +300,7 @@ export default function ProviderLimits() {
   }, 0);
 
   // Empty state
-  if (!connectionsLoading && sortedConnections.length === 0) {
+  if (!connectionsLoading && sortedProviderNames.length === 0) {
     return (
       <Card padding="lg">
         <div className="text-center py-12">
@@ -328,19 +336,27 @@ export default function ProviderLimits() {
           {/* Auto-refresh toggle */}
           <button
             onClick={() => setAutoRefresh((prev) => !prev)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-300 ${
+              autoRefresh 
+                ? 'bg-primary/10 border-primary/30 text-primary shadow-[0_0_15px_rgba(168,85,247,0.15)] glow-hover' 
+                : 'border-black/5 dark:border-white/5 bg-surface hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-primary'
+            }`}
             title={autoRefresh ? "Disable auto-refresh" : "Enable auto-refresh"}
           >
             <span
-              className={`material-symbols-outlined text-[18px] ${
-                autoRefresh ? "text-primary" : "text-text-muted"
+              className={`material-symbols-outlined text-[18px] transition-transform duration-300 ${
+                autoRefresh ? "text-primary" : "text-text-muted opacity-50"
               }`}
             >
               {autoRefresh ? "toggle_on" : "toggle_off"}
             </span>
-            <span className="text-sm text-text-primary">Auto-refresh</span>
+            <span className={`text-sm font-medium ${autoRefresh ? "text-primary" : "text-text-muted"}`}>
+              Auto-refresh
+            </span>
             {autoRefresh && (
-              <span className="text-xs text-text-muted">({countdown}s)</span>
+              <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+                {countdown}s
+              </span>
             )}
           </button>
 
@@ -360,18 +376,23 @@ export default function ProviderLimits() {
 
       {/* Provider Cards Grid */}
       <div className="flex flex-col gap-4">
-        {sortedConnections.map((conn) => {
+        {sortedProviderNames.map((providerName) => {
+          const providerConns = groupedConnections[providerName];
+          const selectedConnId = selectedConnections[providerName] || providerConns[0].id;
+          const conn = providerConns.find((c) => c.id === selectedConnId) || providerConns[0];
+
           const quota = quotaData[conn.id];
           const isLoading = loading[conn.id];
           const error = errors[conn.id];
 
           // Use table layout for all providers
           return (
-            <Card key={conn.id} padding="none">
-              <div className="p-6 border-b border-black/10 dark:border-white/10">
+            <div key={providerName} className="relative rounded-xl overflow-hidden border border-black/5 dark:border-white/5 shadow-[0_0_30px_-10px_rgba(168,85,247,0.1)] dark:shadow-[0_0_40px_-12px_rgba(168,85,247,0.15)] bg-white dark:bg-[#0d0d12]/80 backdrop-blur-xl transition-all duration-300 group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary via-accent to-secondary opacity-80" />
+              <div className="p-5 border-b border-black/5 dark:border-white/5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center overflow-hidden">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden bg-gradient-to-br from-black/5 to-black/10 dark:from-white/5 dark:to-white/10 ring-1 ring-white/10 shadow-inner group-hover:shadow-[0_0_15px_rgba(168,85,247,0.2)] transition-shadow duration-300">
                       <ProviderIcon
                         src={`/providers/${conn.provider}.png`}
                         alt={conn.provider}
@@ -383,11 +404,40 @@ export default function ProviderLimits() {
                       />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-text-primary capitalize">
+                      <h3 className="text-lg font-bold text-text-primary capitalize tracking-wide drop-shadow-sm">
                         {conn.provider}
                       </h3>
-                      {conn.name && (
-                        <p className="text-sm text-text-muted">{conn.name}</p>
+                      {providerConns.length > 1 ? (
+                        <select
+                          value={conn.id}
+                          onChange={(e) => setSelectedConnections((prev) => ({ ...prev, [providerName]: e.target.value }))}
+                          className="mt-1 text-sm font-medium text-text-muted/80 bg-black/5 dark:bg-white/[0.03] border border-black/10 dark:border-white/10 rounded-md py-1 pb-1 pl-2 pr-7 appearance-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 cursor-pointer hover:bg-black/10 dark:hover:bg-white/[0.06] hover:text-text-primary outline-none transition-all"
+                          style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center', backgroundSize: '14px' }}
+                        >
+                          {providerConns.map((c) => {
+                            const cQuota = quotaData[c.id];
+                            const cLoading = loading[c.id];
+                            const cError = errors[c.id] || cQuota?.message;
+                            
+                            let isExhausted = false;
+                            if (cQuota?.quotas?.length > 0) {
+                              isExhausted = cQuota.quotas.some((q) => q.total > 0 && q.used >= q.total);
+                            } else if (cError) {
+                              isExhausted = true;
+                            }
+                            
+                            const indicator = cLoading ? "⚪" : (isExhausted ? "🔴" : "🟢");
+                            const color = cLoading ? "var(--color-text-muted)" : (isExhausted ? "#ef4444" : "#22c55e");
+                            
+                            return (
+                              <option key={c.id} value={c.id} className="bg-surface font-medium" style={{background: 'var(--color-surface)', color}}>
+                                {indicator} {c.name || "Default Account"}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        conn.name && <p className="text-sm font-medium mt-1 text-text-muted/80 bg-black/5 dark:bg-white/[0.03] border border-black/5 dark:border-white/5 rounded-md px-2 py-0.5 inline-block">{conn.name}</p>
                       )}
                     </div>
                   </div>
@@ -407,29 +457,32 @@ export default function ProviderLimits() {
                 </div>
               </div>
 
-              <div className="p-6">
+              <div className="p-4 sm:p-5">
                 {isLoading ? (
-                  <div className="text-center py-8 text-text-muted">
-                    <span className="material-symbols-outlined text-[32px] animate-spin">
+                  <div className="text-center py-10">
+                    <span className="material-symbols-outlined text-[32px] animate-spin text-primary opacity-50 drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]">
                       progress_activity
                     </span>
+                    <p className="mt-4 text-xs font-mono text-primary/70 animate-pulse tracking-widest uppercase">Syncing Quotas</p>
                   </div>
                 ) : error ? (
-                  <div className="text-center py-8">
-                    <span className="material-symbols-outlined text-[32px] text-red-500">
+                  <div className="text-center py-8 rounded-xl bg-red-500/5 border border-red-500/10 my-2">
+                    <span className="material-symbols-outlined text-[32px] text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]">
                       error
                     </span>
                     <p className="mt-2 text-sm text-text-muted">{error}</p>
                   </div>
                 ) : quota?.message ? (
-                  <div className="text-center py-8">
-                    <p className="text-sm text-text-muted">{quota.message}</p>
+                  <div className="text-center py-6 rounded-xl bg-blue-500/5 border border-blue-500/10 my-2">
+                    <p className="text-sm text-blue-400 font-medium">{quota.message}</p>
                   </div>
                 ) : (
-                  <QuotaTable quotas={quota?.quotas} />
+                  <div className="mt-1">
+                    <QuotaTable quotas={quota?.quotas} />
+                  </div>
                 )}
               </div>
-            </Card>
+            </div>
           );
         })}
       </div>

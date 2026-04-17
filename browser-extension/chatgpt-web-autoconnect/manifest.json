@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "NexusAI Web Auto Connect",
+  "description": "One-click ChatGPT, Gemini, and Grok Web session capture for the NexusAI dashboard.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "121",
+  "permissions": [
+    "cookies",
+    "tabs",
+    "webRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://*.google.com/*",
+    "https://grok.com/*",
+    "https://x.com/i/grok*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.trycloudflare.com/*",
+    "https://*.ngrok-free.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.trycloudflare.com/*",
+        "https://*.ngrok-free.app/*"
+      ],
+      "js": [
+        "dashboard-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["chatgpt-injector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["gemini-injector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://grok.com/*", "https://x.com/i/grok*"],
+      "js": ["grok-injector.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "NexusAI Web Auto Connect"
+  }
+}

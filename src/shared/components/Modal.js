@@ -71,11 +71,6 @@ export default function Modal({
         {(title || showCloseButton) && (
           <div className="flex items-center justify-between p-6 border-b border-black/5 dark:border-white/5">
             <div className="flex items-center">
-              <div className="flex items-center gap-2 mr-4">
-                <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
-                <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
-                <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-              </div>
               {title && (
                 <h2 className="text-lg font-semibold text-text-main">
                   {title}

@@ -1,6 +1,6 @@
 /**
  * OAuth Provider Configurations and Handlers
- * Exam Solver AI Gateway — Only Codex + Kiro
+ * NexusAI Gateway — Only Codex + Kiro
  */
 
 // Ensure outbound fetch respects HTTP(S)_PROXY/ALL_PROXY in Node runtime
@@ -10,6 +10,9 @@ import { generatePKCE, generateState } from "./utils/pkce";
 import {
   CODEX_CONFIG,
   KIRO_CONFIG,
+  AMAZONQ_CONFIG,
+  GITLAB_DUO_CONFIG,
+  CODEBUDDY_CONFIG,
 } from "./constants/oauth";
 
 // Provider configurations
@@ -188,6 +191,190 @@ const PROVIDERS = {
       };
       return mapped;
     },
+  },
+
+  amazonq: {
+    config: AMAZONQ_CONFIG,
+    flowType: "device_code",
+    requestDeviceCode: async (config) => {
+      // Step 1: Register client with AWS SSO OIDC
+      const registerRes = await fetch(config.registerClientUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          clientName: config.clientName,
+          clientType: config.clientType,
+          scopes: config.scopes,
+          grantTypes: config.grantTypes,
+          issuerUrl: config.issuerUrl,
+        }),
+      });
+
+      if (!registerRes.ok) {
+        const error = await registerRes.text();
+        throw new Error(`Client registration failed: ${error}`);
+      }
+
+      const clientInfo = await registerRes.json();
+
+      // Step 2: Request device authorization
+      const deviceRes = await fetch(config.deviceAuthUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          clientId: clientInfo.clientId,
+          clientSecret: clientInfo.clientSecret,
+          startUrl: config.startUrl,
+        }),
+      });
+
+      if (!deviceRes.ok) {
+        const error = await deviceRes.text();
+        throw new Error(`Device authorization failed: ${error}`);
+      }
+
+      const deviceData = await deviceRes.json();
+
+      return {
+        device_code: deviceData.deviceCode,
+        user_code: deviceData.userCode,
+        verification_uri: deviceData.verificationUri,
+        verification_uri_complete: deviceData.verificationUriComplete,
+        expires_in: deviceData.expiresIn,
+        interval: deviceData.interval || 5,
+        _clientId: clientInfo.clientId,
+        _clientSecret: clientInfo.clientSecret,
+      };
+    },
+    pollToken: async (config, deviceCode, codeVerifier, extraData) => {
+      const response = await fetch(config.tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          clientId: extraData?._clientId,
+          clientSecret: extraData?._clientSecret,
+          deviceCode: deviceCode,
+          grantType: "urn:ietf:params:oauth:grant-type:device_code",
+        }),
+      });
+
+      let data;
+      try { data = await response.json(); } catch (e) {
+        return { ok: false, data: { error: "invalid_response", error_description: await response.text() } };
+      }
+
+      if (data.accessToken) {
+        return {
+          ok: true,
+          data: {
+            access_token: data.accessToken,
+            refresh_token: data.refreshToken,
+            expires_in: data.expiresIn,
+            profile_arn: data?.profileArn || null,
+            _clientId: extraData?._clientId,
+            _clientSecret: extraData?._clientSecret,
+          },
+        };
+      }
+
+      return { ok: false, data: { error: data.error || "authorization_pending", error_description: data.error_description || data.message } };
+    },
+    mapTokens: (tokens) => ({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+      providerSpecificData: {
+        profileArn: tokens?.profile_arn || null,
+        clientId: tokens._clientId,
+        clientSecret: tokens._clientSecret,
+      },
+    }),
+  },
+
+  gitlab: {
+    config: GITLAB_DUO_CONFIG,
+    flowType: "device_code",
+    requestDeviceCode: async (config) => {
+      const baseUrl = config.defaultBaseUrl;
+      const deviceRes = await fetch(`${baseUrl}${config.deviceAuthPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          client_id: config.clientId,
+          scope: config.scope,
+        }),
+      });
+
+      if (!deviceRes.ok) {
+        throw new Error(`GitLab device authorization failed: ${await deviceRes.text()}`);
+      }
+
+      return await deviceRes.json();
+    },
+    pollToken: async (config, deviceCode) => {
+      const baseUrl = config.defaultBaseUrl;
+      const response = await fetch(`${baseUrl}${config.tokenPath}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          client_id: config.clientId,
+          device_code: deviceCode,
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        }),
+      });
+
+      let data;
+      try { data = await response.json(); } catch (e) {
+        return { ok: false, data: { error: "invalid_response", error_description: await response.text() } };
+      }
+
+      if (data.access_token) return { ok: true, data };
+      return { ok: false, data: { error: data.error || "authorization_pending", error_description: data.error_description } };
+    },
+    mapTokens: (tokens) => ({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+    }),
+  },
+
+  codebuddy: {
+    config: CODEBUDDY_CONFIG,
+    flowType: "device_code",
+    requestDeviceCode: async (config) => {
+      const deviceRes = await fetch(config.deviceAuthUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ client_id: config.clientId }),
+      });
+
+      if (!deviceRes.ok) throw new Error(`CodeBuddy device authorization failed: ${await deviceRes.text()}`);
+      return await deviceRes.json();
+    },
+    pollToken: async (config, deviceCode) => {
+      const response = await fetch(config.tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          client_id: config.clientId,
+          device_code: deviceCode,
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        }),
+      });
+
+      let data;
+      try { data = await response.json(); } catch (e) {
+        return { ok: false, data: { error: "invalid_response", error_description: await response.text() } };
+      }
+
+      if (data.access_token) return { ok: true, data };
+      return { ok: false, data: { error: data.error || "authorization_pending", error_description: data.error_description } };
+    },
+    mapTokens: (tokens) => ({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+    }),
   },
 };
 

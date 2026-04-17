@@ -1,9 +1,9 @@
 /**
- * Exam Solver AI Gateway - Electron Main Process
+ * NexusAI Gateway - Electron Main Process
  * Creates a native Desktop window wrapping the Next.js server
  */
 
-const { app, BrowserWindow, dialog, Menu, Tray, nativeImage } = require("electron");
+const { app, BrowserWindow, dialog, Menu, Tray, nativeImage, ipcMain, session } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const { spawn } = require("child_process");
@@ -18,6 +18,193 @@ let mainWindow = null;
 let serverProcess = null;
 let tray = null;
 let isQuitting = false;
+const CHATGPT_WEB_PARTITION = "persist:nexusai-chatgpt-web";
+const CHATGPT_WEB_CAPTURE_FILTER = { urls: ["https://chatgpt.com/backend-api/*"] };
+const CHATGPT_WEB_SUPPORTED_CAPTURE_PATHS = new Set([
+  "/backend-api/f/conversation",
+  "/backend-api/conversation",
+]);
+
+function getTargetPathFromCaptureUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  try {
+    return new URL(raw).pathname || "";
+  } catch {
+    if (raw.startsWith("/")) {
+      const questionIndex = raw.indexOf("?");
+      return questionIndex >= 0 ? raw.slice(0, questionIndex) : raw;
+    }
+    return "";
+  }
+}
+
+function isSupportedChatgptCaptureUrl(value) {
+  return CHATGPT_WEB_SUPPORTED_CAPTURE_PATHS.has(getTargetPathFromCaptureUrl(value));
+}
+
+function normalizeCapturedHeaders(headers = {}) {
+  const forbidden = new Set([
+    "cookie",
+    "content-length",
+    "host",
+    "connection",
+    "content-encoding",
+    "transfer-encoding",
+    "sec-fetch-site",
+    "sec-fetch-mode",
+    "sec-fetch-dest",
+    "sec-fetch-user",
+    "sec-ch-ua",
+    "sec-ch-ua-mobile",
+    "sec-ch-ua-platform",
+  ]);
+
+  const result = {};
+  for (const [rawKey, rawValue] of Object.entries(headers || {})) {
+    const key = String(rawKey || "").trim().toLowerCase();
+    if (!key || forbidden.has(key)) continue;
+    const value = Array.isArray(rawValue)
+      ? rawValue.join(", ")
+      : String(rawValue || "").trim();
+    if (!value) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+function normalizeCapturedCookies(cookies = []) {
+  return Array.isArray(cookies)
+    ? cookies
+      .map((cookie) => {
+        const name = String(cookie?.name || "").trim();
+        const value = String(cookie?.value || "").trim();
+        if (!name || !value) return null;
+        return {
+          name,
+          value,
+          domain: String(cookie?.domain || "").trim(),
+          path: String(cookie?.path || "/").trim() || "/",
+          secure: cookie?.secure === true,
+          httpOnly: cookie?.httpOnly === true,
+          expirationDate: cookie?.expirationDate ?? null,
+        };
+      })
+      .filter(Boolean)
+    : [];
+}
+
+function hasAuthenticatedChatgptCapture(headers = {}, cookies = []) {
+  if (headers.authorization) {
+    return true;
+  }
+
+  return cookies.some((cookie) => {
+    const name = String(cookie?.name || "").toLowerCase();
+    return name.includes("session") || name.includes("auth") || name.includes("__secure");
+  });
+}
+
+async function clearChatgptWebPartitionData() {
+  const isolatedSession = session.fromPartition(CHATGPT_WEB_PARTITION, { cache: true });
+  try {
+    await isolatedSession.clearStorageData({
+      storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"],
+    });
+    await isolatedSession.clearCache();
+  } catch {
+  }
+
+  return { ok: true };
+}
+
+function openChatgptWebLoginWindow() {
+  return new Promise((resolve, reject) => {
+    const isolatedSession = session.fromPartition(CHATGPT_WEB_PARTITION, { cache: true });
+    isolatedSession.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+    let loginWindow = null;
+    let settled = false;
+
+    const finish = (handler, payload) => {
+      if (settled) return;
+      settled = true;
+      isolatedSession.webRequest.onBeforeSendHeaders(CHATGPT_WEB_CAPTURE_FILTER, null);
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close();
+      }
+      handler(payload);
+    };
+
+    const handleCapturedRequest = async (details, callback) => {
+      callback({ requestHeaders: details.requestHeaders });
+      if (settled) return;
+
+      try {
+        const captureUrl = String(details?.url || "").trim();
+        const capturedTargetPath = getTargetPathFromCaptureUrl(captureUrl);
+        const headers = normalizeCapturedHeaders(details.requestHeaders || {});
+        const cookies = normalizeCapturedCookies(
+          await isolatedSession.cookies.get({ url: "https://chatgpt.com" }),
+        );
+
+        if (!isSupportedChatgptCaptureUrl(captureUrl) || !hasAuthenticatedChatgptCapture(headers, cookies)) {
+          return;
+        }
+
+        finish(resolve, {
+          cookies,
+          headers,
+          userAgent: headers["user-agent"] || isolatedSession.getUserAgent(),
+          captureUrl,
+          capturedTargetPath,
+          capturedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        finish(reject, error);
+      }
+    };
+
+    isolatedSession.webRequest.onBeforeSendHeaders(
+      CHATGPT_WEB_CAPTURE_FILTER,
+      handleCapturedRequest,
+    );
+
+    loginWindow = new BrowserWindow({
+      width: 1280,
+      height: 860,
+      minWidth: 980,
+      minHeight: 700,
+      title: "ChatGPT Web Login",
+      parent: mainWindow || undefined,
+      modal: Boolean(mainWindow),
+      autoHideMenuBar: true,
+      show: false,
+      backgroundColor: "#0a0f1a",
+      webPreferences: {
+        partition: CHATGPT_WEB_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    loginWindow.once("ready-to-show", () => {
+      loginWindow.show();
+    });
+
+    loginWindow.on("closed", () => {
+      if (!settled) {
+        isolatedSession.webRequest.onBeforeSendHeaders(CHATGPT_WEB_CAPTURE_FILTER, null);
+        reject(new Error("Login window closed before a ChatGPT conversation backend request was captured."));
+      }
+    });
+
+    loginWindow.loadURL("https://chatgpt.com").catch((error) => {
+      finish(reject, error);
+    });
+  });
+}
 
 // ─── Single Instance Lock ────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -45,7 +232,7 @@ function setupAutoUpdater() {
     console.log(`[Updater] Update available: v${info.version}`);
     if (mainWindow) {
       mainWindow.webContents.executeJavaScript(
-        `document.title = "Exam Solver Gateway - Dang tai ban cap nhat v${info.version}..."`
+        `document.title = "NexusAI Gateway - Dang tai ban cap nhat v${info.version}..."`
       );
     }
   });
@@ -216,6 +403,8 @@ function startServer() {
   });
 }
 
+// ─── Wait for Port ───────────────────────────────────────────
+
 function waitForPort(port, timeout) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -283,7 +472,7 @@ function createWindow() {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    title: "Exam Solver AI Gateway",
+    title: "NexusAI Gateway",
     icon: iconPath,
     backgroundColor: "#0a0f1a",
     show: false,
@@ -307,7 +496,7 @@ function createWindow() {
       const response = dialog.showMessageBoxSync(mainWindow, {
         type: "question",
         title: "Thoat ung dung",
-        message: "Ban co muon tat Exam Solver Gateway?",
+        message: "Ban co muon tat NexusAI Gateway?",
         detail: "Server se dung hoat dong khi tat ung dung.",
         buttons: ["Tat", "Thu nho", "Huy"],
         defaultId: 2,
@@ -353,7 +542,7 @@ function createTray() {
   try {
     const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
     tray = new Tray(icon);
-    tray.setToolTip("Exam Solver AI Gateway");
+    tray.setToolTip("NexusAI Gateway");
 
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -415,7 +604,7 @@ app.on("ready", async () => {
       <body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:rgba(10,15,26,0.95);border-radius:16px;font-family:system-ui,-apple-system,sans-serif;color:white;-webkit-app-region:drag;">
         <div style="text-align:center">
           <div style="width:64px;height:64px;margin:0 auto 16px;border-radius:16px;background:linear-gradient(135deg,#00d4ff,#1e3a5f,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:20px;box-shadow:0 0 30px rgba(0,212,255,0.3);">ES</div>
-          <h2 style="margin:0 0 8px;font-size:18px;">Exam Solver AI Gateway</h2>
+          <h2 style="margin:0 0 8px;font-size:18px;">NexusAI Gateway</h2>
           <p style="margin:0;color:#94a3b8;font-size:13px;">Dang khoi dong server...</p>
           <div style="margin-top:16px;width:200px;height:3px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;margin-left:auto;margin-right:auto;">
             <div style="width:30%;height:100%;background:linear-gradient(90deg,#00d4ff,#7c3aed);border-radius:3px;animation:loading 1.5s infinite ease-in-out;"></div>
@@ -431,6 +620,17 @@ app.on("ready", async () => {
     splash.close();
     createWindow();
     setupAutoUpdater();
+
+    // IPC: Launch at login
+    ipcMain.handle("get-login-item-settings", () => {
+      return app.getLoginItemSettings();
+    });
+    ipcMain.handle("set-login-item-settings", (_event, openAtLogin) => {
+      app.setLoginItemSettings({ openAtLogin });
+      return app.getLoginItemSettings();
+    });
+    ipcMain.handle("chatgpt-web-login", async () => openChatgptWebLoginWindow());
+    ipcMain.handle("chatgpt-web-clear-session", async () => clearChatgptWebPartitionData());
   } catch (err) {
     dialog.showErrorBox(
       "Khoi dong that bai",

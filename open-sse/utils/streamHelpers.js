@@ -1,5 +1,20 @@
 import { FORMATS } from "../translator/formats.js";
 
+function hasOpenAIUsage(chunk) {
+  const usage = chunk?.usage;
+  if (!usage || typeof usage !== "object") return false;
+
+  return (
+    usage.prompt_tokens !== undefined ||
+    usage.completion_tokens !== undefined ||
+    usage.total_tokens !== undefined ||
+    usage.reasoning_tokens !== undefined ||
+    usage.prompt_tokens_details?.cached_tokens !== undefined ||
+    usage.completion_tokens_details?.reasoning_tokens !== undefined ||
+    usage.output_tokens_details?.reasoning_tokens !== undefined
+  );
+}
+
 // Parse SSE data line
 export function parseSSELine(line, format = null) {
   if (!line) return null;
@@ -36,13 +51,18 @@ export function parseSSELine(line, format = null) {
 // Check if chunk has valuable content (not empty)
 export function hasValuableContent(chunk, format) {
   // OpenAI format
-  if (format === FORMATS.OPENAI && chunk.choices?.[0]?.delta) {
-    const delta = chunk.choices[0].delta;
-    return delta.content && delta.content !== "" ||
-           delta.reasoning_content && delta.reasoning_content !== "" ||
-           delta.tool_calls && delta.tool_calls.length > 0 ||
-           chunk.choices[0].finish_reason ||
-           delta.role;
+  if (format === FORMATS.OPENAI) {
+    const delta = chunk.choices?.[0]?.delta;
+    if (delta) {
+      return delta.content && delta.content !== "" ||
+             delta.reasoning_content && delta.reasoning_content !== "" ||
+             delta.tool_calls && delta.tool_calls.length > 0 ||
+             chunk.choices[0].finish_reason ||
+             delta.role ||
+             hasOpenAIUsage(chunk);
+    }
+
+    return hasOpenAIUsage(chunk);
   }
 
   // Claude format

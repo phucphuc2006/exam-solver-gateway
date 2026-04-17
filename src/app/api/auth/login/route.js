@@ -1,48 +1,44 @@
 import { NextResponse } from "next/server";
 import { getSettings } from "@/lib/localDb";
 import bcrypt from "bcryptjs";
-import { SignJWT } from "jose";
 import { cookies } from "next/headers";
-
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "ES Gateway-default-secret-change-me"
-);
+import { getAuthCookieOptions, getBootstrapState, issueAuthToken } from "@/lib/adminAuth";
+import { syncAuthGateStateFromSettings } from "@/lib/authGateState";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 export async function POST(request) {
+  const limited = enforceRateLimit(
+    request,
+    { scope: "auth.login", limit: 5, windowMs: 60_000 },
+    "Too many login attempts",
+  );
+  if (limited.response) {
+    return limited.response;
+  }
+
   try {
     const { password } = await request.json();
-    const settings = await getSettings();
+    const bootstrap = await getBootstrapState();
+    if (bootstrap.needsSetup) {
+      return NextResponse.json(
+        { error: "Bootstrap setup required", bootstrapRequired: true },
+        { status: 409 },
+      );
+    }
 
-    // Default password is '123456' if not set
+    const settings = await getSettings();
+    syncAuthGateStateFromSettings(settings);
     const storedHash = settings.password;
 
     let isValid = false;
     if (storedHash) {
       isValid = await bcrypt.compare(password, storedHash);
-    } else {
-      // Use env var or default
-      const initialPassword = process.env.INITIAL_PASSWORD || "123456";
-      isValid = password === initialPassword;
     }
 
     if (isValid) {
-      const forceSecureCookie = process.env.AUTH_COOKIE_SECURE === "true";
-      const forwardedProto = request.headers.get("x-forwarded-proto");
-      const isHttpsRequest = forwardedProto === "https";
-      const useSecureCookie = forceSecureCookie || isHttpsRequest;
-
-      const token = await new SignJWT({ authenticated: true })
-        .setProtectedHeader({ alg: "HS256" })
-        .setExpirationTime("24h")
-        .sign(SECRET);
-
+      const token = await issueAuthToken();
       const cookieStore = await cookies();
-      cookieStore.set("auth_token", token, {
-        httpOnly: true,
-        secure: useSecureCookie,
-        sameSite: "lax",
-        path: "/",
-      });
+      cookieStore.set("auth_token", token, getAuthCookieOptions(request));
 
       return NextResponse.json({ success: true });
     }
