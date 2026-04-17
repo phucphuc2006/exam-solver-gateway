@@ -5,6 +5,24 @@ import { DEFAULT_LOCALE, LOCALE_COOKIE, normalizeLocale } from "./config";
 let translationMap = {};
 let currentLocale = DEFAULT_LOCALE;
 let reloadCallbacks = [];
+let runtimeObserver = null;
+
+const TRANSLATABLE_ATTRIBUTES = ["placeholder", "title", "aria-label"];
+const SKIP_TAGS = new Set([
+  "script",
+  "style",
+  "code",
+  "pre",
+  "colgroup",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "select",
+  "datalist",
+  "optgroup",
+]);
 
 // Read locale from cookie
 function getLocaleFromCookie() {
@@ -24,7 +42,9 @@ async function loadTranslations(locale) {
   }
   
   try {
-    const response = await fetch(`/i18n/literals/${locale}.json`);
+    const response = await fetch(`/i18n/literals/${locale}.json`, {
+      cache: "no-store",
+    });
     translationMap = await response.json();
   } catch (err) {
     console.error("Failed to load translations:", err);
@@ -32,13 +52,24 @@ async function loadTranslations(locale) {
   }
 }
 
-// Translate text - exported for use in components
-export function translate(text) {
+function preserveWhitespaceTranslate(text) {
   if (!text || typeof text !== "string") return text;
   const trimmed = text.trim();
   if (!trimmed) return text;
+
+  const translated = translationMap[trimmed];
+  if (!translated) return text;
+
+  const leadingWhitespace = text.match(/^\s*/)?.[0] ?? "";
+  const trailingWhitespace = text.match(/\s*$/)?.[0] ?? "";
+  return `${leadingWhitespace}${translated}${trailingWhitespace}`;
+}
+
+// Translate text - exported for use in components
+export function translate(text) {
+  if (!text || typeof text !== "string") return text;
   if (currentLocale === "en") return text;
-  return translationMap[trimmed] || text;
+  return preserveWhitespaceTranslate(text);
 }
 
 // Get current locale - exported for use in components
@@ -50,74 +81,161 @@ export function getCurrentLocale() {
 export function onLocaleChange(callback) {
   reloadCallbacks.push(callback);
   return () => {
-    reloadCallbacks = reloadCallbacks.filter(cb => cb !== callback);
+    reloadCallbacks = reloadCallbacks.filter((cb) => cb !== callback);
   };
+}
+
+function shouldSkipElement(element) {
+  let current = element;
+  while (current) {
+    if (current.hasAttribute && current.hasAttribute("data-i18n-skip")) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+
+  return false;
+}
+
+function getElementStore(element) {
+  if (!element._i18nOriginalAttributes) {
+    element._i18nOriginalAttributes = {};
+  }
+
+  return element._i18nOriginalAttributes;
+}
+
+function processAttribute(element, attributeName) {
+  if (!element?.getAttribute || !TRANSLATABLE_ATTRIBUTES.includes(attributeName)) {
+    return;
+  }
+
+  if (shouldSkipElement(element)) {
+    return;
+  }
+
+  const value = element.getAttribute(attributeName);
+  if (!value || !value.trim()) {
+    return;
+  }
+
+  const store = getElementStore(element);
+  const previousOriginal = store[attributeName];
+  const previousTranslated = previousOriginal ? translate(previousOriginal) : null;
+
+  if (
+    !previousOriginal ||
+    (value !== previousOriginal && value !== previousTranslated)
+  ) {
+    store[attributeName] = value;
+  }
+
+  const translated = translate(store[attributeName]);
+  if (translated !== value) {
+    element.setAttribute(attributeName, translated);
+  }
+}
+
+function processElementAttributes(element) {
+  TRANSLATABLE_ATTRIBUTES.forEach((attributeName) => {
+    if (element.hasAttribute(attributeName)) {
+      processAttribute(element, attributeName);
+    }
+  });
+}
+
+function syncOriginalText(node, currentValue) {
+  const previousOriginal = node._originalText;
+  const previousTranslated = previousOriginal ? translate(previousOriginal) : null;
+
+  if (
+    !previousOriginal ||
+    (currentValue !== previousOriginal && currentValue !== previousTranslated)
+  ) {
+    node._originalText = currentValue;
+  }
 }
 
 // Process text node
 function processTextNode(node) {
-  if (!node.nodeValue || !node.nodeValue.trim()) return;
-  
-  // Skip if parent is script, style, code, or structural elements
+  if (!node?.nodeValue || !node.nodeValue.trim()) return;
+
   const parent = node.parentElement;
   if (!parent) return;
-  
-  // Skip if parent or any ancestor has data-i18n-skip attribute
-  let element = parent;
-  while (element) {
-    if (element.hasAttribute && element.hasAttribute('data-i18n-skip')) {
-      return;
-    }
-    element = element.parentElement;
+
+  if (shouldSkipElement(parent)) {
+    return;
   }
-  
+
   const tagName = parent.tagName?.toLowerCase();
-  
-  // Skip elements that don't allow text nodes
-  const skipTags = [
-    "script", "style", "code", "pre",
-    "colgroup", "table", "thead", "tbody", "tfoot", "tr",
-    "select", "datalist", "optgroup"
-  ];
-  
-  if (skipTags.includes(tagName)) return;
-  
-  // Store original text if not already stored
-  if (!node._originalText) {
-    node._originalText = node.nodeValue;
-  }
-  
-  // Use original text for translation
-  const original = node._originalText;
-  const translated = translate(original);
-  
-  // Only update if different to avoid unnecessary DOM mutations
+  if (SKIP_TAGS.has(tagName)) return;
+
+  syncOriginalText(node, node.nodeValue);
+
+  const translated = translate(node._originalText);
   if (translated !== node.nodeValue) {
     node.nodeValue = translated;
   }
 }
 
-// Process all text nodes in element
 function processElement(element) {
   if (!element) return;
-  
-  const walker = document.createTreeWalker(
-    element,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
-  
-  let node;
-  const nodesToProcess = [];
-  
-  // Collect all nodes first to avoid live collection issues
-  while ((node = walker.nextNode())) {
-    nodesToProcess.push(node);
+
+  if (element.nodeType === Node.TEXT_NODE) {
+    processTextNode(element);
+    return;
   }
-  
-  // Process collected nodes
-  nodesToProcess.forEach(processTextNode);
+
+  if (element.nodeType !== Node.ELEMENT_NODE) {
+    return;
+  }
+
+  const queue = [element];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || current.nodeType !== Node.ELEMENT_NODE) {
+      continue;
+    }
+
+    if (shouldSkipElement(current)) {
+      continue;
+    }
+
+    processElementAttributes(current);
+
+    current.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        processTextNode(child);
+        return;
+      }
+
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        queue.push(child);
+      }
+    });
+  }
+}
+
+function createRuntimeObserver() {
+  return new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === "childList") {
+        mutation.addedNodes.forEach((node) => {
+          processElement(node);
+        });
+        return;
+      }
+
+      if (mutation.type === "characterData") {
+        processTextNode(mutation.target);
+        return;
+      }
+
+      if (mutation.type === "attributes") {
+        processAttribute(mutation.target, mutation.attributeName);
+      }
+    });
+  });
 }
 
 // Initialize runtime i18n
@@ -126,26 +244,18 @@ export async function initRuntimeI18n() {
   
   currentLocale = getLocaleFromCookie();
   await loadTranslations(currentLocale);
-  
-  // Process existing DOM
+  reloadCallbacks.forEach((callback) => callback(currentLocale));
+
   processElement(document.body);
-  
-  // Watch for new nodes
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          processElement(node);
-        } else if (node.nodeType === Node.TEXT_NODE) {
-          processTextNode(node);
-        }
-      });
-    });
-  });
-  
-  observer.observe(document.body, {
+
+  runtimeObserver?.disconnect();
+  runtimeObserver = createRuntimeObserver();
+  runtimeObserver.observe(document.body, {
     childList: true,
     subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: TRANSLATABLE_ATTRIBUTES,
   });
 }
 
@@ -155,8 +265,6 @@ export async function reloadTranslations() {
   await loadTranslations(currentLocale);
   
   // Notify all registered callbacks
-  reloadCallbacks.forEach(callback => callback());
-  
-  // Re-process entire DOM (will use stored original text)
+  reloadCallbacks.forEach((callback) => callback(currentLocale));
   processElement(document.body);
 }

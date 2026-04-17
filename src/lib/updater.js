@@ -1,10 +1,10 @@
 /**
- * Exam Solver AI Gateway - Auto Updater
+ * NexusAI Gateway - Auto Updater
  * Checks GitHub Releases for new versions
  */
 
 const GITHUB_OWNER = "phucphuc2006";
-const GITHUB_REPO = "exam-solver-gateway";
+const GITHUB_REPO = "nexusai-gateway";
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 let cachedResult = null;
@@ -44,7 +44,7 @@ async function checkForUpdate(currentVersion) {
     const res = await fetch(url, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "ExamSolverGateway",
+        "User-Agent": "NexusAIGateway",
       },
       signal: controller.signal,
     });

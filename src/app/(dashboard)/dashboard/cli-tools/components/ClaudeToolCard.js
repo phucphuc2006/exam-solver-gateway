@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, ModelSelectModal, ManualConfigModal, Tooltip } from "@/shared/components";
-import Image from "next/image";
+import { Button, ModelSelectModal, ManualConfigModal, Tooltip } from "@/shared/components";
+import AutoConfigToolShell from "./AutoConfigToolShell";
 
 const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
 
@@ -223,27 +223,9 @@ export default function ClaudeToolCard({
   };
 
   return (
-    <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-center justify-between hover:cursor-pointer" onClick={onToggle}>
-        <div className="flex items-center gap-3">
-          <div className="size-8 flex items-center justify-center shrink-0">
-            <Image src="/providers/claude.png" alt={tool.name} width={32} height={32} className="size-8 object-contain rounded-lg" sizes="32px" onError={(e) => { e.target.style.display = "none"; }} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-medium text-sm">{tool.name}</h3>
-              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">Connected</span>}
-              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-full">Not configured</span>}
-              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">Other</span>}
-            </div>
-            <p className="text-xs text-text-muted truncate">{tool.description}</p>
-          </div>
-        </div>
-        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
-
-      {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
+    <>
+      <AutoConfigToolShell tool={tool} isExpanded={isExpanded} onToggle={onToggle} status={configStatus}>
+        <div className="flex flex-col gap-4">
           {checkingClaude && (
             <div className="flex items-center gap-2 text-text-muted">
               <span className="material-symbols-outlined animate-spin">progress_activity</span>
@@ -372,7 +354,7 @@ export default function ClaudeToolCard({
             </>
           )}
         </div>
-      )}
+      </AutoConfigToolShell>
 
       <ModelSelectModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSelect={handleModelSelect} selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias] : null} activeProviders={activeProviders} modelAliases={modelAliases} title={`Select model for ${currentEditingAlias}`} />
       
@@ -382,7 +364,7 @@ export default function ClaudeToolCard({
         title="Claude CLI - Manual Configuration"
         configs={getManualConfigs()}
       />
-    </Card>
+    </>
   );
 }
 

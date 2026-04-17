@@ -1,13 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardSkeleton } from "@/shared/components";
+import { Badge, Card, CardSkeleton } from "@/shared/components";
 import { CLI_TOOLS } from "@/shared/constants/cliTools";
-import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { useRuntimeLocale } from "@/i18n/useRuntimeLocale";
 import { ClaudeToolCard, CodexToolCard, DroidToolCard, OpenClawToolCard, DefaultToolCard, OpenCodeToolCard } from "./components";
 
 const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
 
+const WEB_BRIDGE_PROVIDERS = [
+  { provider: "chatgpt-web", name: "ChatGPT Web Bridge", url: "/api/chatgpt-web/session" },
+  { provider: "gemini-web", name: "Gemini Web Bridge", url: "/api/gemini-web/session" },
+  { provider: "grok-web", name: "Grok Web Bridge", url: "/api/grok-web/session" },
+];
 
 const STATUS_ENDPOINTS = {
   claude: "/api/cli-tools/claude-settings",
@@ -17,8 +22,84 @@ const STATUS_ENDPOINTS = {
   openclaw: "/api/cli-tools/openclaw-settings",
 };
 
+function normalizeString(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function normalizeWebBridgeModels(providerId, availableModels = []) {
+  const rawEntries = Array.isArray(availableModels) ? availableModels : [];
+  const seen = new Set();
+  const normalized = [];
+
+  for (const entry of rawEntries) {
+    const isObjectEntry = entry && typeof entry === "object" && !Array.isArray(entry);
+    const rawId = isObjectEntry
+      ? normalizeString(entry.id || entry.slug || entry.model_slug || entry.value || entry.name || entry.title || entry.label)
+      : normalizeString(entry);
+
+    if (!rawId) continue;
+
+    const modelId = rawId.startsWith(`${providerId}/`) ? rawId.slice(providerId.length + 1) : rawId;
+    const modelValue = rawId.startsWith(`${providerId}/`) ? rawId : `${providerId}/${rawId}`;
+    if (!modelId || seen.has(modelValue)) continue;
+
+    seen.add(modelValue);
+    normalized.push({
+      id: modelId,
+      name: isObjectEntry
+        ? normalizeString(entry.title || entry.name || entry.label || entry.display_name || modelId)
+        : modelId,
+      value: modelValue,
+      provider: providerId,
+      alias: providerId,
+      connectionName: providerId,
+      modelId,
+    });
+  }
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  if (providerId === "chatgpt-web") {
+    return [{
+      id: "auto",
+      name: "Auto",
+      value: "chatgpt-web/auto",
+      provider: providerId,
+      alias: providerId,
+      connectionName: providerId,
+      modelId: "auto",
+    }];
+  }
+
+  return [];
+}
+
+function createWebBridgeConnection(provider, name, session) {
+  if (!session || session.status === "missing") {
+    return null;
+  }
+
+  return {
+    id: session.id || provider,
+    provider,
+    name,
+    authType: "web-bridge",
+    isActive: true,
+    providerSpecificData: {
+      source: "web-bridge",
+      status: session.status || null,
+      availableModels: normalizeWebBridgeModels(provider, session.availableModels),
+    },
+  };
+}
+
 export default function CLIToolsPageClient({ machineId }) {
+  const { t } = useRuntimeLocale();
   const [connections, setConnections] = useState([]);
+  const [webBridgeConnections, setWebBridgeConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedTool, setExpandedTool] = useState(null);
   const [modelMappings, setModelMappings] = useState({});
@@ -29,10 +110,29 @@ export default function CLIToolsPageClient({ machineId }) {
   const [toolStatuses, setToolStatuses] = useState({});
 
   useEffect(() => {
-    fetchConnections();
-    loadCloudSettings();
-    fetchApiKeys();
-    fetchAllStatuses();
+    let cancelled = false;
+
+    const loadInitialData = async () => {
+      try {
+        await Promise.all([
+          fetchConnections(),
+          fetchWebBridgeConnections(),
+          loadCloudSettings(),
+          fetchApiKeys(),
+          fetchAllStatuses(),
+        ]);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadInitialData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const fetchAllStatuses = async () => {
@@ -95,29 +195,39 @@ export default function CLIToolsPageClient({ machineId }) {
       }
     } catch (error) {
       console.log("Error fetching connections:", error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const getActiveProviders = () => connections.filter(c => c.isActive !== false);
+  const fetchWebBridgeConnections = async () => {
+    try {
+      const responses = await Promise.all(
+        WEB_BRIDGE_PROVIDERS.map(async ({ provider, name, url }) => {
+          try {
+            const res = await fetch(url, { cache: "no-store" });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return createWebBridgeConnection(provider, name, data?.session);
+          } catch {
+            return null;
+          }
+        }),
+      );
 
-  const getAllAvailableModels = () => {
-    const activeProviders = getActiveProviders();
-    const models = [];
-    const seenModels = new Set();
-    activeProviders.forEach(conn => {
-      const alias = PROVIDER_ID_TO_ALIAS[conn.provider] || conn.provider;
-      const providerModels = getModelsByProviderId(conn.provider);
-      providerModels.forEach(m => {
-        const modelValue = `${alias}/${m.id}`;
-        if (!seenModels.has(modelValue)) {
-          seenModels.add(modelValue);
-          models.push({ value: modelValue, label: `${alias}/${m.id}`, provider: conn.provider, alias, connectionName: conn.name, modelId: m.id });
-        }
+      setWebBridgeConnections(responses.filter(Boolean));
+    } catch (error) {
+      console.log("Error fetching web bridge connections:", error);
+      setWebBridgeConnections([]);
+    }
+  };
+
+  const getActiveProviders = () => {
+    const merged = new Map();
+    [...connections, ...webBridgeConnections]
+      .filter((connection) => connection && connection.isActive !== false)
+      .forEach((connection) => {
+        merged.set(connection.provider, connection);
       });
-    });
-    return models;
+    return Array.from(merged.values());
   };
 
   const handleModelMappingChange = useCallback((toolId, modelAlias, targetModel) => {
@@ -144,8 +254,12 @@ export default function CLIToolsPageClient({ machineId }) {
     );
   }
 
-  const availableModels = getAllAvailableModels();
-  const hasActiveProviders = availableModels.length > 0;
+  const activeProviders = getActiveProviders();
+  const hasActiveProviders = activeProviders.length > 0;
+  const regularTools = Object.entries(CLI_TOOLS);
+  const autoWriterTools = regularTools.filter(([, tool]) => ["custom", "env"].includes(tool.configType));
+  const guideTools = regularTools.filter(([, tool]) => tool.configType === "guide");
+  const installedWriterCount = autoWriterTools.filter(([toolId]) => toolStatuses[toolId]?.installed).length;
 
   const renderToolCard = (toolId, tool) => {
     const commonProps = {
@@ -162,7 +276,7 @@ export default function CLIToolsPageClient({ machineId }) {
           <ClaudeToolCard
             key={toolId}
             {...commonProps}
-            activeProviders={getActiveProviders()}
+            activeProviders={activeProviders}
             modelMappings={modelMappings[toolId] || {}}
             onModelMappingChange={(alias, target) => handleModelMappingChange(toolId, alias, target)}
             hasActiveProviders={hasActiveProviders}
@@ -171,36 +285,95 @@ export default function CLIToolsPageClient({ machineId }) {
           />
         );
       case "codex":
-        return <CodexToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.codex} />;
+        return <CodexToolCard key={toolId} {...commonProps} activeProviders={activeProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.codex} />;
       case "opencode":
-        return <OpenCodeToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.opencode} />;
+        return <OpenCodeToolCard key={toolId} {...commonProps} activeProviders={activeProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.opencode} />;
       case "droid":
-        return <DroidToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} hasActiveProviders={hasActiveProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.droid} />;
+        return <DroidToolCard key={toolId} {...commonProps} activeProviders={activeProviders} hasActiveProviders={hasActiveProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.droid} />;
       case "openclaw":
-        return <OpenClawToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} hasActiveProviders={hasActiveProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.openclaw} />;
+        return <OpenClawToolCard key={toolId} {...commonProps} activeProviders={activeProviders} hasActiveProviders={hasActiveProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.openclaw} />;
       default:
-        return <DefaultToolCard key={toolId} toolId={toolId} {...commonProps} activeProviders={getActiveProviders()} cloudEnabled={cloudEnabled} tunnelEnabled={tunnelEnabled} />;
+        return <DefaultToolCard key={toolId} toolId={toolId} {...commonProps} activeProviders={activeProviders} cloudEnabled={cloudEnabled} tunnelEnabled={tunnelEnabled} />;
     }
   };
 
-  const regularTools = Object.entries(CLI_TOOLS);
-
   return (
-    <div className="flex flex-col gap-6">
-      {/* {!hasActiveProviders && (
-        <Card className="border-yellow-500/50 bg-yellow-500/5">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-yellow-500">warning</span>
-            <div>
-              <p className="font-medium text-yellow-600 dark:text-yellow-400">No active providers</p>
-              <p className="text-sm text-text-muted">Please add and connect providers first to configure CLI tools.</p>
+    <div className="flex min-w-0 flex-col gap-6">
+      {!hasActiveProviders ? (
+        <Card className="overflow-hidden border-[#b68c53]/20 bg-[#b68c53]/[0.08]">
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex size-11 items-center justify-center rounded-2xl bg-[#c29158]/15 text-[#e6bc88]">
+              <span className="material-symbols-outlined text-[20px]">warning</span>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-sm font-semibold text-[#f0d5ae]">{t("Chưa có provider active để cấp model cho Auto Config")}</p>
+              <p className="text-sm leading-6 text-[#f5e5cb]/75">
+                {t("Bạn vẫn có thể mở các guide card, nhưng những tool cần map model thật sẽ thiếu dữ liệu. Hãy kết nối ít nhất một provider trước để các card one-click hoạt động đầy đủ.")}
+              </p>
             </div>
           </div>
         </Card>
-      )} */}
-      <div className="flex flex-col gap-4">
-        {regularTools.map(([toolId, tool]) => renderToolCard(toolId, tool))}
-      </div>
+      ) : null}
+
+      <section id="auto-config-writers" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-[#5e8b80] dark:text-[#87b4a9]">{t("One-click writers")}</p>
+            <div className="space-y-0.5">
+              <h3 className="text-2xl font-semibold tracking-tight text-text-main">{t("Ghi cấu hình trực tiếp vào tool")}</h3>
+              <p className="max-w-3xl text-sm leading-6 text-text-muted">
+                {t("Dành cho các tool mà NexusAI có thể viết config thật vào file local. Mục tiêu là ít copy tay, ít bước trung gian và dễ rollback ngay trong cùng card.")}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge size="sm" variant="primary">{t(`${autoWriterTools.length} writers`)}</Badge>
+            <Badge size="sm">{t(`${installedWriterCount} installed`)}</Badge>
+          </div>
+        </div>
+
+        <div
+          className="rounded-[24px] border p-3 shadow-[0_18px_52px_rgba(17,43,39,0.14)] md:p-4"
+          style={{
+            borderColor: "rgba(108, 145, 129, 0.2)",
+            background: "linear-gradient(180deg, rgba(112, 176, 155, 0.08) 0%, rgba(255,255,255,0.015) 22%, rgba(255,255,255,0) 100%)",
+          }}
+        >
+          <div className="grid gap-3 xl:grid-cols-2">
+            {autoWriterTools.map(([toolId, tool]) => renderToolCard(toolId, tool))}
+          </div>
+        </div>
+      </section>
+
+      <section id="auto-config-guides" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-[#8e6b49] dark:text-[#d2a170]">{t("Manual guides")}</p>
+            <div className="space-y-0.5">
+              <h3 className="text-2xl font-semibold tracking-tight text-text-main">{t("Guide card cho IDE và assistant cần cấu hình tay")}</h3>
+              <p className="max-w-3xl text-sm leading-6 text-text-muted">
+                {t("Nhóm này không tự viết file cho bạn, nhưng được gom riêng để dễ phân biệt với one-click writer. Mỗi card tập trung vào thứ phải copy: base URL, API key, model và snippet cấu hình.")}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge size="sm">{t(`${guideTools.length} guides`)}</Badge>
+            <Badge size="sm">{t(`${activeProviders.length} provider ready`)}</Badge>
+          </div>
+        </div>
+
+        <div
+          className="rounded-[24px] border p-3 shadow-[0_18px_52px_rgba(74,51,28,0.1)] md:p-4"
+          style={{
+            borderColor: "rgba(166, 128, 88, 0.18)",
+            background: "linear-gradient(180deg, rgba(205, 151, 91, 0.08) 0%, rgba(255,255,255,0.015) 24%, rgba(255,255,255,0) 100%)",
+          }}
+        >
+          <div className="grid gap-3 xl:grid-cols-2">
+            {guideTools.map(([toolId, tool]) => renderToolCard(toolId, tool))}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

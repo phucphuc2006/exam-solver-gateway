@@ -1,25 +1,12 @@
-import { Inter } from "next/font/google";
 import "./globals.css";
+import AppRuntimeInit from "@/shared/components/AppRuntimeInit";
 import { ThemeProvider } from "@/shared/components/ThemeProvider";
-import "@/lib/initCloudSync"; // Auto-initialize cloud sync
-import "@/lib/network/initOutboundProxy"; // Auto-initialize outbound proxy env
-import { initConsoleLogCapture } from "@/lib/consoleLogBuffer";
 import { RuntimeI18nProvider } from "@/i18n/RuntimeI18nProvider";
-
-// Hook console immediately at module load time (server-side only, runs once)
-initConsoleLogCapture();
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-});
+import { APP_DESCRIPTION, APP_NAME } from "@/shared/constants/app";
 
 export const metadata = {
-  title: "Exam Solver AI Gateway",
-  description: "Smart AI Gateway for Exam Solver - Connect GPT & Kiro with one click.",
-  icons: {
-    icon: "/favicon.svg",
-  },
+  title: APP_NAME,
+  description: APP_DESCRIPTION,
 };
 
 export const viewport = {
@@ -30,6 +17,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
@@ -38,9 +26,10 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className="font-sans antialiased">
         <ThemeProvider>
           <RuntimeI18nProvider>
+            <AppRuntimeInit />
             {children}
           </RuntimeI18nProvider>
         </ThemeProvider>

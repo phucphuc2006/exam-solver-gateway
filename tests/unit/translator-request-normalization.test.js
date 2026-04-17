@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
 import { claudeToOpenAIRequest } from "../../open-sse/translator/request/claude-to-openai.js";
+import { openaiToOpenAIResponsesRequest } from "../../open-sse/translator/request/openai-responses.js";
 import { filterToOpenAIFormat } from "../../open-sse/translator/helpers/openaiHelper.js";
 import { parseSSELine } from "../../open-sse/utils/streamHelpers.js";
 
@@ -114,5 +115,23 @@ describe("request normalization", () => {
   it("parseSSELine still supports SSE data lines", () => {
     const parsed = parseSSELine('data: {"choices":[{"delta":{"content":"hi"}}]}');
     expect(parsed.choices[0].delta.content).toBe("hi");
+  });
+
+  it("openaiToOpenAIResponsesRequest preserves reasoning config", () => {
+    const body = {
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "hello" }],
+      reasoning_effort: "xhigh",
+      reasoning: { effort: "xhigh", summary: "auto" },
+      include: ["reasoning.encrypted_content"],
+      max_completion_tokens: 2048,
+    };
+
+    const result = openaiToOpenAIResponsesRequest("gpt-5.4", body, true);
+
+    expect(result.reasoning_effort).toBe("xhigh");
+    expect(result.reasoning).toEqual({ effort: "xhigh", summary: "auto" });
+    expect(result.include).toEqual(["reasoning.encrypted_content"]);
+    expect(result.max_completion_tokens).toBe(2048);
   });
 });

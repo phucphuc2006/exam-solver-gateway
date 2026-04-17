@@ -1,0 +1,87 @@
+inner_req_list[TEMPORARY_CHAT_FLAG_INDEX] = 1
+                if deep_research:
+                    inner_req_list[49] = 1
+                inner_req_list[53] = 0
+                if deep_research:
+                    inner_req_list[54] = [[[[[1]]]]]
+                    inner_req_list[55] = [[1]]
+                inner_req_list[61] = []
+                inner_req_list[68] = 2
+
+                uuid_val = str(uuid.uuid4()).upper()
+
+                inner_req_list[59] = uuid_val
+
+                request_headers = {
+                    **Headers.GEMINI.value,
+                    **model.model_header,
+                    "x-goog-ext-525005358-jspb": f'["{uuid_val}",1]',
+                    **Headers.SAME_DOMAIN.value,
+                }
+
+                request_data = {
+                    "at": self.access_token,
+                    "f.req": json.dumps(
+                        [
+                            None,
+                            json.dumps(inner_req_list).decode("utf-8"),
+                        ]
+                    ).decode("utf-8"),
+                }
+
+                async with self.client.stream(
+                    "POST",
+                    Endpoint.GENERATE,
+                    params=params,
+                    headers=request_headers,
+                    data=request_data,
+                    **kwargs,
+                ) as response:
+                    if self.verbose:
+                        logger.debug(
+                            f"HTTP Request: POST {Endpoint.GENERATE} [{response.status_code}]"
+                        )
+                    if response.status_code != 200:
+                        await self.close()
+                        raise APIError(
+                            f"Failed to generate contents. Status: {response.status_code}"
+                        )
+
+                    buffer = ""
+                    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+
+                    last_texts: dict[str, str] = session_state["last_texts"]
+                    last_thoughts: dict[str, str] = session_state["last_thoughts"]
+                    last_progress_time: float = time.time()
+
+                    is_thinking = False
+                    is_queueing = False
+                    has_candidates = False
+                    is_completed = False  # Check if this conversation turn has been fully answered.
+                    is_final_chunk = False  # Check if this turn is saved to history and marked complete or still pending (e.g., video generation).
+                    cid = chat.cid if chat else ""
+                    rid = chat.rid if chat else ""
+
+                    async def _process_parts(
+                        parts: list[Any],
+                    ) -> AsyncGenerator[ModelOutput, None]:
+                        nonlocal is_thinking, is_queueing, has_candidates, is_completed, is_final_chunk, cid, rid
+                        for part in parts:
+                            # Check for fatal error codes
+                            error_code = get_nested_value(part, [5, 2, 0, 1, 0])
+                            if error_code:
+                                await self.close()
+                                match error_code:
+                                    case ErrorCode.USAGE_LIMIT_EXCEEDED:
+                                        raise UsageLimitExceeded(
+                                            f"Usage limit exceeded for model '{model.model_name}'. Please wait a few minutes, "
+                                            "switch to a different model (e.g., Gemini Flash), or check your account limits on gemini.google.com."
+                                        )
+                                    case ErrorCode.MODEL_INCONSISTENT:
+                                        raise ModelInvalid(
+                                            "The specified model is inconsistent with the conversation history. "
+                                            "Please ensure you are using the same 'model' parameter throughout the entire ChatSession."
+                                        )
+                                    case ErrorCode.MODEL_HEADER_INVALID:
+                                        raise ModelInvalid(
+                                            f"The model '{model.model_name}' is currently unavailable or the request structure is outdated. "

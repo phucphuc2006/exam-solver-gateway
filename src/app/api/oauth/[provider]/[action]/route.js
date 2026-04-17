@@ -39,7 +39,7 @@ export async function GET(request, { params }) {
       const authData = generateAuthData(provider, null);
       
       // Providers that don't use PKCE for device code
-      const noPkceDeviceProviders = ["github", "kiro", "kimi-coding", "kilocode", "codebuddy"];
+      const noPkceDeviceProviders = ["github", "kiro", "kimi-coding", "kilocode", "codebuddy", "amazonq", "gitlab"];
       let deviceData;
       if (noPkceDeviceProviders.includes(provider)) {
         deviceData = await requestDeviceCode(provider);
@@ -115,12 +115,12 @@ export async function POST(request, { params }) {
       }
 
       // Providers that don't use PKCE for device code
-      const noPkceProviders = ["github", "kimi-coding", "kilocode", "codebuddy"];
+      const noPkceProviders = ["github", "kimi-coding", "kilocode", "codebuddy", "gitlab"];
       let result;
       if (noPkceProviders.includes(provider)) {
         result = await pollForToken(provider, deviceCode);
-      } else if (provider === "kiro") {
-        // Kiro needs extraData (clientId, clientSecret) from device code response
+      } else if (provider === "kiro" || provider === "amazonq") {
+        // Kiro and Amazon Q need extraData (clientId, clientSecret) from device code response
         result = await pollForToken(provider, deviceCode, null, extraData);
       } else {
         // Qwen and other PKCE providers

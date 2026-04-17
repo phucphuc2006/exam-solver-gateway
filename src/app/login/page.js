@@ -2,46 +2,46 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ShieldCheck, ArrowRight, Lock, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
+  const [bootstrap, setBootstrap] = useState({
+    loading: true,
+    needsSetup: false,
+    localSetupAllowed: false,
+  });
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [setupPassword, setSetupPassword] = useState("");
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [hasPassword, setHasPassword] = useState(null);
+  const [error, setError] = useState("");
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
-    async function checkAuth() {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    loadBootstrapStatus();
+  }, []);
 
-      try {
-        const res = await fetch(`${baseUrl}/api/settings`, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.requireLogin === false) {
-            router.push("/dashboard");
-            router.refresh();
-            return;
-          }
-          setHasPassword(!!data.hasPassword);
-        } else {
-          setHasPassword(true);
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        setHasPassword(true);
-      }
+  const loadBootstrapStatus = async () => {
+    try {
+      const res = await fetch("/api/bootstrap/status", { cache: "no-store" });
+      const data = await res.json();
+      setBootstrap({
+        loading: false,
+        needsSetup: data.needsSetup === true,
+        localSetupAllowed: data.localSetupAllowed === true,
+      });
+    } catch (err) {
+      setBootstrap({
+        loading: false,
+        needsSetup: true,
+        localSetupAllowed: false,
+      });
+      setError("Unable to load gateway bootstrap status.");
     }
-    checkAuth();
-  }, [router]);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -55,213 +55,225 @@ export default function LoginPage() {
         body: JSON.stringify({ password }),
       });
 
-      if (res.ok) {
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        const data = await res.json();
-        setError(data.error || "Sai mật khẩu");
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.bootstrapRequired) {
+          await loadBootstrapStatus();
+        }
+        throw new Error(data.error || "Mật khẩu không chính xác");
       }
+
+      router.replace("/");
     } catch (err) {
-      setError("Có lỗi xảy ra. Vui lòng thử lại.");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  if (hasPassword === null) {
+  const handleBootstrapSetup = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/bootstrap/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: setupPassword,
+          confirmPassword: setupConfirmPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to complete bootstrap setup");
+      }
+
+      router.replace("/");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!mounted || bootstrap.loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{background: 'linear-gradient(135deg, #0a0f1a 0%, #0d1b2a 50%, #0a0f1a 100%)'}}>
-        <div className="text-center">
-          <div className="relative w-12 h-12 mx-auto">
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#00d4ff] animate-spin" />
-            <div className="absolute inset-1 rounded-full border-2 border-transparent border-b-[#7c3aed] animate-spin" style={{animationDirection: 'reverse', animationDuration: '1.5s'}} />
-          </div>
-          <p className="text-[#94a3b8] mt-4 text-sm">Đang tải...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f]">
+         <div className="w-8 h-8 border-2 border-[var(--nexus-pink)] border-t-transparent inset-0 rounded-full animate-spin"></div>
       </div>
     );
   }
 
+  const isBootstrapMode = bootstrap.needsSetup;
+
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden" style={{background: 'linear-gradient(135deg, #0a0f1a 0%, #0d1b2a 50%, #0a0f1a 100%)'}}>
+    <div className="split-screen bg-[var(--bg-deep)]">
       
-      {/* Animated gradient orbs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div 
-          className="absolute w-[600px] h-[600px] rounded-full blur-[120px] opacity-20"
-          style={{
-            background: 'radial-gradient(circle, #00d4ff 0%, transparent 70%)',
-            top: '-15%',
-            right: '-10%',
-            animation: 'float-orb 8s ease-in-out infinite',
-          }}
-        />
-        <div 
-          className="absolute w-[500px] h-[500px] rounded-full blur-[100px] opacity-15"
-          style={{
-            background: 'radial-gradient(circle, #7c3aed 0%, transparent 70%)',
-            bottom: '-10%',
-            left: '-5%',
-            animation: 'float-orb 10s ease-in-out infinite reverse',
-          }}
-        />
-        <div 
-          className="absolute w-[300px] h-[300px] rounded-full blur-[80px] opacity-10"
-          style={{
-            background: 'radial-gradient(circle, #00d4ff 0%, transparent 70%)',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            animation: 'float-orb 12s ease-in-out infinite',
-          }}
-        />
+      {/* Nửa Trái: Branding & Visuals (Biến mất ở mobile) */}
+      <div className="split-left">
+        {/* Animated Background Gradients inside Left Side */}
+        <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] bg-[var(--nexus-pink)] rounded-full mix-blend-screen filter blur-[150px] opacity-10 animate-blob"></div>
+        <div className="absolute bottom-1/4 left-1/4 w-[400px] h-[400px] bg-[var(--nexus-purple)] rounded-full mix-blend-screen filter blur-[150px] opacity-10 animate-blob" style={{animationDelay: '2s'}}></div>
         
-        {/* Grid pattern overlay */}
-        <div 
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: 'linear-gradient(rgba(0,212,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.3) 1px, transparent 1px)',
-            backgroundSize: '60px 60px',
-          }}
-        />
+        <div className="relative z-10 max-w-lg">
+          <Link href="/" className="inline-flex items-center gap-3 mb-16 hover:opacity-80 transition-opacity">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--nexus-pink)] to-[var(--nexus-purple)] flex flex-col items-center justify-center shadow-[0_0_15px_rgba(246,55,236,0.5)] border border-white/20">
+              <span className="font-black text-white text-2xl leading-none">N</span>
+            </div>
+            <span className="text-3xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+              NexusAI
+            </span>
+          </Link>
+
+
+        </div>
       </div>
 
-      {/* Login card */}
-      <div 
-        className={`relative w-full max-w-[420px] mx-4 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
-      >
-        {/* Logo & Branding */}
-        <div className="text-center mb-8">
-          {/* Logo with glow */}
-          <div className="relative inline-block mb-5">
-            <div 
-              className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-black text-3xl relative z-10"
-              style={{
-                background: 'linear-gradient(135deg, #00d4ff 0%, #1e3a5f 60%, #7c3aed 100%)',
-                boxShadow: '0 0 40px rgba(0, 212, 255, 0.3), 0 8px 32px rgba(0, 0, 0, 0.3)',
-              }}
-            >
-              ES
-            </div>
-            <div 
-              className="absolute -inset-2 rounded-3xl opacity-30 blur-xl -z-1"
-              style={{background: 'linear-gradient(135deg, #00d4ff, #7c3aed)'}}
-            />
+      {/* Nửa Phải: Login Form */}
+      <div className="split-right">
+        <div className="w-full max-w-[400px] mx-auto opacity-0 animate-[fade-in-up_0.8s_ease-out_forwards]">
+          {/* Mobile Header (Only visible when split-left is hidden) */}
+          <div className="md:hidden flex flex-col items-center mb-10">
+             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--nexus-pink)] to-[var(--nexus-purple)] flex items-center justify-center shadow-[0_0_20px_rgba(246,55,236,0.4)] border border-white/20 mb-4">
+                <span className="font-black text-white text-3xl">N</span>
+             </div>
+             <h2 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">NexusAI</h2>
           </div>
-          
-          <h1 className="text-3xl font-bold mb-2 tracking-tight">
-            <span className="es-gradient-text">Exam Solver</span>
-          </h1>
-          <p className="text-[#64748b] text-sm font-medium tracking-wide uppercase">
-            AI Gateway Console
-          </p>
-        </div>
 
-        {/* Glass login card */}
-        <div 
-          className="rounded-2xl p-8 relative overflow-hidden"
-          style={{
-            background: 'rgba(30, 41, 59, 0.5)',
-            backdropFilter: 'blur(24px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(24px) saturate(150%)',
-            border: '1px solid rgba(148, 226, 255, 0.1)',
-            boxShadow: '0 25px 60px -12px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
-          }}
-        >
-          {/* Top accent line */}
-          <div 
-            className="absolute top-0 left-0 right-0 h-[2px]"
-            style={{background: 'linear-gradient(90deg, transparent, #00d4ff, #7c3aed, transparent)'}}
-          />
+          <div className="mb-10 text-center md:text-left">
+            <h2 className="text-3xl font-bold text-white mb-3">
+              {isBootstrapMode ? "First-run Security Setup" : "Welcome System"}
+            </h2>
+            <p className="text-[var(--text-secondary)] text-lg">
+              {isBootstrapMode
+                ? "Create the first admin password before opening the dashboard."
+                : "Authenticate to access the Gateway."}
+            </p>
+          </div>
 
-          <form onSubmit={handleLogin} className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-[#94a3b8] flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px] text-[#00d4ff]">lock</span>
-                Mật khẩu truy cập
-              </label>
-              <div className="relative group">
-                <input
-                  type="password"
-                  placeholder="Nhập mật khẩu..."
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoFocus
-                  className="w-full px-4 py-3.5 rounded-xl text-[#e2e8f0] text-sm font-medium placeholder-[#475569] outline-none transition-all duration-300 focus:ring-2 focus:ring-[#00d4ff]/30"
-                  style={{
-                    background: 'rgba(15, 23, 42, 0.6)',
-                    border: '1px solid rgba(148, 226, 255, 0.1)',
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = 'rgba(0, 212, 255, 0.4)';
-                    e.target.style.boxShadow = '0 0 20px rgba(0, 212, 255, 0.1)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(148, 226, 255, 0.1)';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
-              </div>
-              {error && (
-                <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20">
-                  <span className="material-symbols-outlined text-[14px]">error</span>
-                  {error}
+          {/* Form wrapper */}
+          <div className="bg-white/[0.03] border border-white/10 p-8 rounded-[2rem] backdrop-blur-2xl shadow-2xl relative">
+            <div className="absolute -top-px left-1/2 -translate-x-1/2 w-40 h-[1px] bg-gradient-to-r from-transparent via-[var(--nexus-pink)] to-transparent"></div>
+            
+            <form onSubmit={isBootstrapMode ? handleBootstrapSetup : handleLogin} className="flex flex-col gap-6">
+              {isBootstrapMode && (
+                <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-300" />
+                    <div>
+                      <p className="font-medium text-white">Bootstrap mode is local-only</p>
+                      <p className="mt-1 text-blue-100/80">
+                        {bootstrap.localSetupAllowed
+                          ? "You're on localhost, so you can create the admin password now."
+                          : "Open this page from the machine hosting the gateway to complete the first-run setup."}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 rounded-xl font-semibold text-sm text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
-              style={{
-                background: loading 
-                  ? 'rgba(0, 212, 255, 0.3)' 
-                  : 'linear-gradient(135deg, #00d4ff 0%, #0099cc 50%, #7c3aed 100%)',
-                backgroundSize: '200% 200%',
-                boxShadow: '0 4px 20px rgba(0, 212, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2)',
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) {
-                  e.target.style.boxShadow = '0 6px 30px rgba(0, 212, 255, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2)';
-                  e.target.style.transform = 'translateY(-1px)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.boxShadow = '0 4px 20px rgba(0, 212, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2)';
-                e.target.style.transform = 'translateY(0)';
-              }}
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Đang xác thực...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="material-symbols-outlined text-[18px]">login</span>
-                  Đăng nhập
-                </span>
+              <div className="flex flex-col gap-3">
+                <label className="text-sm font-medium text-[var(--text-secondary)] flex items-center gap-2">
+                  {isBootstrapMode ? "Admin Password" : "Access Key"}
+                </label>
+
+                {isBootstrapMode ? (
+                  <div className="grid gap-4">
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <Lock className="h-5 w-5 text-gray-500 group-focus-within:text-[var(--nexus-pink)] transition-colors" />
+                      </div>
+                      <input
+                        type="password"
+                        placeholder="Create admin password..."
+                        value={setupPassword}
+                        onChange={(e) => setSetupPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        autoFocus
+                        className="w-full pl-12 pr-4 py-4 rounded-xl text-white text-sm font-medium placeholder-gray-600 outline-none transition-all duration-300 bg-black/40 border border-white/10 focus:border-[var(--nexus-pink)] focus:ring-1 focus:ring-[var(--nexus-pink)]/50 focus:shadow-[0_0_20px_rgba(246,55,236,0.15)]"
+                      />
+                    </div>
+
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <Lock className="h-5 w-5 text-gray-500 group-focus-within:text-[var(--nexus-pink)] transition-colors" />
+                      </div>
+                      <input
+                        type="password"
+                        placeholder="Confirm admin password..."
+                        value={setupConfirmPassword}
+                        onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                        required
+                        minLength={8}
+                        className="w-full pl-12 pr-4 py-4 rounded-xl text-white text-sm font-medium placeholder-gray-600 outline-none transition-all duration-300 bg-black/40 border border-white/10 focus:border-[var(--nexus-pink)] focus:ring-1 focus:ring-[var(--nexus-pink)]/50 focus:shadow-[0_0_20px_rgba(246,55,236,0.15)]"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                      <Lock className="h-5 w-5 text-gray-500 group-focus-within:text-[var(--nexus-pink)] transition-colors" />
+                    </div>
+                    <input
+                      type="password"
+                      placeholder="Enter access mask..."
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      autoFocus
+                      className="w-full pl-12 pr-4 py-4 rounded-xl text-white text-sm font-medium placeholder-gray-600 outline-none transition-all duration-300 bg-black/40 border border-white/10 focus:border-[var(--nexus-pink)] focus:ring-1 focus:ring-[var(--nexus-pink)]/50 focus:shadow-[0_0_20px_rgba(246,55,236,0.15)]"
+                    />
+                  </div>
+                )}
+
+                {error && (
+                  <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 px-4 py-3 rounded-xl border border-red-500/20 animate-pulse">
+                    {error}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 mt-2 rounded-xl font-semibold text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group shadow-[0_4px_20px_rgba(124,58,237,0.3)] bg-gradient-to-r from-[var(--nexus-purple)] to-[var(--nexus-pink)] hover:scale-[1.02]"
+              >
+                <div className="absolute inset-0 w-full h-full bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    {isBootstrapMode ? "Securing gateway..." : "Authenticating..."}
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    {isBootstrapMode ? "Create Admin Password" : "Initialize Session"}{" "}
+                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  </span>
+                )}
+              </button>
+
+              {isBootstrapMode && (
+                <div className="text-center pt-2">
+                  <p className="text-xs text-gray-500">
+                    Minimum length is <code className="bg-black/50 text-[var(--nexus-pink)] px-2 py-1 rounded-md font-mono border border-white/5">8</code> characters. Default passwords are disabled.
+                  </p>
+                </div>
               )}
-            </button>
-
-            <div className="text-center">
-              <p className="text-xs text-[#475569]">
-                Mật khẩu mặc định: <code className="bg-[#0f172a] text-[#00d4ff] px-2 py-0.5 rounded-md font-mono border border-[#1e293b]">123456</code>
-              </p>
-            </div>
-          </form>
-        </div>
-
-        {/* Bottom branding */}
-        <div className="text-center mt-6">
-          <p className="text-[10px] text-[#334155] uppercase tracking-[0.2em] font-medium">
-            Powered by Exam Solver Technologies
-          </p>
+            </form>
+          </div>
+          
+          <div className="mt-12 text-center text-sm text-[var(--text-secondary)]">
+            Powered by the <span className="text-white font-medium">NexusAI Core Engine</span>. <br/>
+            &copy; {new Date().getFullYear()} Phuc. All rights reserved.
+          </div>
         </div>
       </div>
+
     </div>
   );
 }

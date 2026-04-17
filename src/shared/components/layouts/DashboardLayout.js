@@ -31,7 +31,7 @@ function getToastStyle(type) {
   };
 }
 
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ children, initialSidebarData = null }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
   const notifications = useNotificationStore((state) => state.notifications);
@@ -78,21 +78,19 @@ export default function DashboardLayout({ children }) {
 
       {/* Sidebar - Desktop */}
       <div className="hidden lg:flex">
-        <Sidebar />
+        <Sidebar initialData={initialSidebarData} />
       </div>
 
       {/* Sidebar - Mobile */}
-      <div
-        className={`fixed inset-y-0 left-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <Sidebar onClose={() => setSidebarOpen(false)} />
-      </div>
+      {sidebarOpen ? (
+        <div className="fixed inset-y-0 left-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out translate-x-0">
+          <Sidebar initialData={initialSidebarData} onClose={() => setSidebarOpen(false)} />
+        </div>
+      ) : null}
 
       {/* Main content */}
       <main className="flex flex-col flex-1 h-full min-w-0 relative transition-colors duration-300">
-        <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
+        <Header onMenuClick={() => setSidebarOpen(true)} />
         <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-6 lg:p-10"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
           <div className={`${pathname === "/dashboard/basic-chat" ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>{children}</div>
         </div>

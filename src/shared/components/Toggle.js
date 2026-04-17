@@ -38,7 +38,7 @@ export default function Toggle({
   return (
     <div
       className={cn(
-        "flex items-center gap-3",
+        "flex min-w-0 items-center gap-3",
         disabled && "opacity-50 cursor-not-allowed",
         className
       )}
@@ -71,14 +71,14 @@ export default function Toggle({
         />
       </button>
       {(label || description) && (
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           {label && (
-            <span className="text-sm font-medium text-text-main">
+            <span className="break-words text-sm font-medium text-text-main">
               {label}
             </span>
           )}
           {description && (
-            <span className="text-xs text-text-muted">
+            <span className="break-words text-xs text-text-muted">
               {description}
             </span>
           )}

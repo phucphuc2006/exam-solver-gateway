@@ -1,14 +1,22 @@
 {
-  "name": "exam-solver-gateway",
-  "version": "1.1.0",
-  "description": "Exam Solver AI Gateway - Smart AI Router for Exam Solver",
+  "name": "nexusai-gateway",
+  "version": "1.0.0",
+  "description": "NexusAI Gateway — Smart AI Router for Multi-Provider AI",
   "private": true,
   "main": "electron-main.js",
   "scripts": {
     "dev": "next dev --webpack --port 21088",
+    "dev:turbopack": "next dev --turbopack --port 21088",
+    "dev:webpack": "next dev --webpack --port 21088",
     "build": "next build --webpack",
     "start": "next start",
+    "test": "vitest run --config vitest.config.mjs --configLoader native --pool threads --maxWorkers 1 --no-file-parallelism",
+    "test:watch": "vitest --config vitest.config.mjs --configLoader native",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate-sqlite.ts",
     "dev:bun": "bun --bun next dev --webpack --port 21088",
+    "dev:bun:turbopack": "bun --bun next dev --turbopack --port 21088",
+    "dev:bun:webpack": "bun --bun next dev --webpack --port 21088",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
     "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
     "electron:dev": "electron .",
@@ -19,12 +27,15 @@
     "@xyflow/react": "^12.10.1",
     "bcryptjs": "^3.0.3",
     "confbox": "^0.2.4",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.8.3",
     "express": "^5.2.1",
     "fs": "^0.0.1-security",
     "http-proxy-middleware": "^3.0.5",
     "jose": "^6.1.3",
     "lowdb": "^7.0.1",
+    "lucide-react": "^1.7.0",
     "monaco-editor": "^0.55.1",
     "next": "^16.1.6",
     "node-forge": "^1.3.3",
@@ -41,6 +52,7 @@
     "sql.js": "^1.14.1",
     "undici": "^7.19.2",
     "uuid": "^13.0.0",
+    "ws": "^8.20.0",
     "zustand": "^5.0.10"
   },
   "optionalDependencies": {
@@ -48,17 +60,23 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "electron": "^41.1.1",
     "electron-builder": "^26.8.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   },
   "build": {
-    "appId": "com.examsolver.gateway",
-    "productName": "ExamSolverGateway",
-    "copyright": "Copyright 2026 Exam Solver",
+    "appId": "com.nexusai.gateway",
+    "productName": "NexusAI Gateway",
+    "copyright": "Copyright 2026 Phuc",
     "directories": {
       "output": "dist/desktop"
     },
@@ -71,17 +89,23 @@
       {
         "from": ".next/standalone",
         "to": "standalone",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": ".next/static",
         "to": "standalone/.next/static",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "public",
         "to": "standalone/public",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "assets/icon.ico",
@@ -92,7 +116,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico",
@@ -111,7 +137,7 @@
     "publish": {
       "provider": "github",
       "owner": "phucphuc2006",
-      "repo": "exam-solver-gateway",
+      "repo": "nexusai-gateway",
       "releaseType": "release"
     }
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Exam Solver AI Gateway - Standalone Server Entry
+ * NexusAI Gateway - Standalone Server Entry
  * This is the entry point for the packaged .exe
  */
 
@@ -27,13 +27,13 @@ function showBanner() {
   console.log("");
   console.log("  ╔══════════════════════════════════════════════╗");
   console.log("  ║                                              ║");
-  console.log("  ║    ⚡ EXAM SOLVER AI GATEWAY ⚡               ║");
+  console.log("  ║      ⚡ NEXUSAI GATEWAY ⚡                    ║");
   console.log(`  ║    Version: ${version.padEnd(34)}║`);
   console.log("  ║                                              ║");
   console.log("  ╚══════════════════════════════════════════════╝");
   console.log("");
   console.log(`  🌐 Dashboard:  http://localhost:${PORT}`);
-  console.log(`  🔑 Password:   (set in .env or INITIAL_PASSWORD)`);
+  console.log("  🔐 First Run:  Open /login to create the admin password");
   console.log(`  📁 Data Dir:   ${process.env.DATA_DIR}`);
   console.log("");
   console.log("  ─────────────────────────────────────────────────");
@@ -73,7 +73,7 @@ function loadEnvFile() {
         if (eqIndex > 0) {
           const key = trimmed.slice(0, eqIndex).trim();
           const value = trimmed.slice(eqIndex + 1).trim();
-          if (!process.env[key] || key === "INITIAL_PASSWORD" || key === "JWT_SECRET") {
+          if (!process.env[key]) {
             process.env[key] = value;
           }
         }

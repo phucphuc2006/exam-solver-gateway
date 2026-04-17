@@ -1,16 +1,21 @@
-// Ensure proxyFetch is loaded to patch globalThis.fetch
-import "open-sse/index.js";
-
-import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
-import { getUsageForProvider } from "open-sse/services/usage.js";
-import { getExecutor } from "open-sse/executors/index.js";
+import { deleteCachedValue, getCachedValue, getOrSetCachedValue } from "@/lib/serverCache";
 
 // Detect auth-expired messages returned by usage providers instead of throwing
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
+const USAGE_RESPONSE_CACHE_TTL_MS = 30 * 1000;
+
 function isAuthExpiredMessage(usage) {
   if (!usage?.message) return false;
   const msg = usage.message.toLowerCase();
   return AUTH_EXPIRED_PATTERNS.some((p) => msg.includes(p));
+}
+
+function isCacheableUsagePayload(usage) {
+  if (!usage || typeof usage !== "object" || usage.error) {
+    return false;
+  }
+
+  return !isAuthExpiredMessage(usage);
 }
 
 /**
@@ -19,6 +24,10 @@ function isAuthExpiredMessage(usage) {
  * @returns Promise<{ connection, refreshed: boolean }>
  */
 async function refreshAndUpdateCredentials(connection, force = false) {
+  const [{ getExecutor }, { updateProviderConnection }] = await Promise.all([
+    import("open-sse/executors/index.js"),
+    import("@/lib/localDb"),
+  ]);
   const executor = getExecutor(connection.provider);
 
   // Build credentials object from connection
@@ -103,8 +112,9 @@ async function refreshAndUpdateCredentials(connection, force = false) {
 export async function GET(request, { params }) {
   let connection;
   try {
+    const { getProviderConnectionById } = await import("@/lib/localDb");
     const { connectionId } = await params;
-
+    const refreshRequested = new URL(request.url).searchParams.get("refresh") === "1";
 
     // Get connection from database
     connection = await getProviderConnectionById(connectionId);
@@ -117,36 +127,64 @@ export async function GET(request, { params }) {
       return Response.json({ message: "Usage not available for API key connections" });
     }
 
-    // Refresh credentials if needed using executor
-    try {
-      const result = await refreshAndUpdateCredentials(connection);
-      connection = result.connection;
-    } catch (refreshError) {
-      console.error("[Usage API] Credential refresh failed:", refreshError);
-      return Response.json({
-        error: `Credential refresh failed: ${refreshError.message}`
-      }, { status: 401 });
-    }
+    const cacheKey = [
+      "api:usage",
+      connectionId,
+      connection.updatedAt || "",
+      connection.expiresAt || connection.tokenExpiresAt || "",
+    ].join(":");
 
-    // Fetch usage from provider API
-    let usage = await getUsageForProvider(connection);
-
-    // If provider returned an auth-expired message instead of throwing,
-    // force-refresh token and retry once
-    if (isAuthExpiredMessage(usage) && connection.refreshToken) {
-      try {
-        const retryResult = await refreshAndUpdateCredentials(connection, true);
-        connection = retryResult.connection;
-        usage = await getUsageForProvider(connection);
-      } catch (retryError) {
-        console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
+    if (refreshRequested) {
+      deleteCachedValue(cacheKey);
+    } else {
+      const cachedUsage = getCachedValue(cacheKey);
+      if (cachedUsage !== null) {
+        return Response.json(cachedUsage);
       }
     }
+
+    const usage = await getOrSetCachedValue(
+      cacheKey,
+      USAGE_RESPONSE_CACHE_TTL_MS,
+      async () => {
+        const { getUsageForProvider } = await import("open-sse/services/usage.js");
+        await import("open-sse/index.js");
+
+        // Refresh credentials if needed using executor
+        try {
+          const result = await refreshAndUpdateCredentials(connection);
+          connection = result.connection;
+        } catch (refreshError) {
+          console.error("[Usage API] Credential refresh failed:", refreshError);
+          const authError = new Error(`Credential refresh failed: ${refreshError.message}`);
+          authError.status = 401;
+          throw authError;
+        }
+
+        // Fetch usage from provider API
+        let payload = await getUsageForProvider(connection);
+
+        // If provider returned an auth-expired message instead of throwing,
+        // force-refresh token and retry once
+        if (isAuthExpiredMessage(payload) && connection.refreshToken) {
+          try {
+            const retryResult = await refreshAndUpdateCredentials(connection, true);
+            connection = retryResult.connection;
+            payload = await getUsageForProvider(connection);
+          } catch (retryError) {
+            console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
+          }
+        }
+
+        return payload;
+      },
+      { cacheIf: isCacheableUsagePayload },
+    );
 
     return Response.json(usage);
   } catch (error) {
     const provider = connection?.provider ?? "unknown";
     console.warn(`[Usage] ${provider}: ${error.message}`);
-    return Response.json({ error: error.message }, { status: 500 });
+    return Response.json({ error: error.message }, { status: error.status || 500 });
   }
 }

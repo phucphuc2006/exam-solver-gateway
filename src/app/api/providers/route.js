@@ -1,13 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  getProviderConnections,
-  createProviderConnection,
-  getProviderNodeById,
-  getProviderNodes,
-  getProxyPoolById,
-} from "@/models";
-import { APIKEY_PROVIDERS } from "@/shared/constants/config";
-import { FREE_TIER_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { APIKEY_PROVIDERS, FREE_TIER_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +29,7 @@ async function normalizeProxyPoolId(proxyPoolId) {
     return { proxyPoolId: null };
   }
 
+  const { getProxyPoolById } = await import("@/models");
   const proxyPool = await getProxyPoolById(normalizedId);
   if (!proxyPool) {
     return { error: "Proxy pool not found" };
@@ -48,6 +41,7 @@ async function normalizeProxyPoolId(proxyPoolId) {
 // GET /api/providers - List all connections
 export async function GET() {
   try {
+    const { getProviderConnections, getProviderNodes } = await import("@/models");
     const connections = await getProviderConnections();
 
     // Build nodeNameMap for compatible providers (id → name)
@@ -85,6 +79,7 @@ export async function GET() {
 // POST /api/providers - Create new connection (API Key only, OAuth via separate flow)
 export async function POST(request) {
   try {
+    const { createProviderConnection, getProviderConnections, getProviderNodeById } = await import("@/models");
     const body = await request.json();
     const { provider, apiKey, name, priority, globalPriority, defaultModel, testStatus } = body;
     const proxyConfig = normalizeProxyConfig(body);

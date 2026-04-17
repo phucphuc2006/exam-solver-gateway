@@ -31,5 +31,8 @@ export {
   createApiKey,
   deleteApiKey,
   validateApiKey,
+  getChatgptWebSession,
+  upsertChatgptWebSession,
+  deleteChatgptWebSession,
   isCloudEnabled,
 } from "@/lib/localDb";

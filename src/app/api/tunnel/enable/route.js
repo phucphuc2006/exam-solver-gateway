@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clearServerCache } from "@/lib/serverCache";
 import { enableTunnel } from "@/lib/tunnel/tunnelManager";
 
 const DNS_WARMUP_DELAY_MS = 8000;
@@ -8,6 +9,7 @@ export async function POST() {
     const result = await enableTunnel();
     // Wait for DNS warmup to propagate at Cloudflare edge after tunnel registered
     await new Promise((r) => setTimeout(r, DNS_WARMUP_DELAY_MS));
+    clearServerCache();
     return NextResponse.json(result);
   } catch (error) {
     console.error("Tunnel enable error:", error);

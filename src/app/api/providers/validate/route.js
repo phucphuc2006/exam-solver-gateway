@@ -1,10 +1,59 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
+import { requireAuthenticatedAdmin, requireBootstrapComplete } from "@/lib/adminAuth";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { getCachedValue, setCachedValue } from "@/lib/serverCache";
 import { getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 
+const VALIDATION_CACHE_TTL_MS = 30_000;
+
+function getValidationCacheKey(provider, apiKey) {
+  return crypto.createHash("sha256").update(`${provider}:${apiKey}`).digest("hex");
+}
+
+function getFriendlyValidationError(error) {
+  if (error?.cause?.code === "ECONNREFUSED") return "Connection refused - provider node offline or unreachable";
+  if (error?.cause?.code === "ENOTFOUND") return "DNS lookup failed - invalid domain or network issue";
+  if (error?.cause?.code === "CERT_HAS_EXPIRED") return "SSL certificate expired";
+  if (String(error?.message || "").toLowerCase().includes("timeout")) {
+    return "Request timeout (>10s) - provider node not responding";
+  }
+  return error?.message || "Invalid API key";
+}
+
+function getCapabilityHints(provider) {
+  const knownHints = {
+    openai: { supportsVision: true, supportsTools: true, supportsAudio: true },
+    anthropic: { supportsVision: true, supportsTools: true },
+    gemini: { supportsVision: true, supportsTools: true, supportsAudio: true },
+    openrouter: { supportsVision: true, supportsTools: true },
+    sambanova: { supportsVision: true, supportsTools: true, supportsAudio: true },
+    vertex: { supportsVision: true, supportsTools: true, supportsAudio: true },
+    "vertex-partner": { supportsVision: true, supportsTools: true, supportsAudio: true },
+  };
+
+  return knownHints[provider] || null;
+}
+
 // POST /api/providers/validate - Validate API key with provider
 export async function POST(request) {
+  const bootstrapResponse = await requireBootstrapComplete(request);
+  if (bootstrapResponse) return bootstrapResponse;
+
+  const authResponse = await requireAuthenticatedAdmin(request);
+  if (authResponse) return authResponse;
+
+  const limited = enforceRateLimit(
+    request,
+    { scope: "providers.validate", limit: 10, windowMs: 60_000 },
+    "Too many provider validation attempts",
+  );
+  if (limited.response) {
+    return limited.response;
+  }
+
   try {
     const body = await request.json();
     const { provider, apiKey } = body;
@@ -13,12 +62,21 @@ export async function POST(request) {
       return NextResponse.json({ error: "Provider and API key required" }, { status: 400 });
     }
 
+    const cacheKey = getValidationCacheKey(provider, apiKey);
+    const cached = getCachedValue(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+
     let isValid = false;
     let error = null;
+    let method = "unknown";
+    const startedAt = Date.now();
 
     // Validate with each provider
     try {
       if (isOpenAICompatibleProvider(provider)) {
+        method = "models";
         const node = await getProviderNodeById(provider);
         if (!node) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
@@ -28,13 +86,19 @@ export async function POST(request) {
           headers: { "Authorization": `Bearer ${apiKey}` },
         });
         isValid = res.ok;
-        return NextResponse.json({
+        const payload = {
           valid: isValid,
           error: isValid ? null : "Invalid API key",
-        });
+          method,
+          latencyMs: Date.now() - startedAt,
+          capabilityHints: getCapabilityHints(provider),
+        };
+        setCachedValue(cacheKey, payload, VALIDATION_CACHE_TTL_MS);
+        return NextResponse.json(payload);
       }
 
       if (isAnthropicCompatibleProvider(provider)) {
+        method = "models";
         const node = await getProviderNodeById(provider);
         if (!node) {
           return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
@@ -56,14 +120,20 @@ export async function POST(request) {
         });
 
         isValid = res.ok;
-        return NextResponse.json({
+        const payload = {
           valid: isValid,
           error: isValid ? null : "Invalid API key",
-        });
+          method,
+          latencyMs: Date.now() - startedAt,
+          capabilityHints: getCapabilityHints(provider),
+        };
+        setCachedValue(cacheKey, payload, VALIDATION_CACHE_TTL_MS);
+        return NextResponse.json(payload);
       }
 
       switch (provider) {
         case "openai":
+          method = "models";
           const openaiRes = await fetch("https://api.openai.com/v1/models", {
             headers: { "Authorization": `Bearer ${apiKey}` },
           });
@@ -71,6 +141,7 @@ export async function POST(request) {
           break;
 
         case "anthropic":
+          method = "messages";
           const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -88,11 +159,13 @@ export async function POST(request) {
           break;
 
         case "gemini":
+          method = "models";
           const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`);
           isValid = geminiRes.ok;
           break;
 
         case "openrouter":
+          method = "models";
           const openrouterRes = await fetch("https://openrouter.ai/api/v1/models", {
             headers: { "Authorization": `Bearer ${apiKey}` },
           });
@@ -106,6 +179,9 @@ export async function POST(request) {
         case "minimax-cn":
         case "alicode-intl":
         case "alicode": {
+          method = provider === "glm-cn" || provider === "alicode" || provider === "alicode-intl"
+            ? "chat.completions"
+            : "messages";
           const claudeBaseUrls = {
             glm: "https://api.z.ai/api/anthropic/v1/messages",
             "glm-cn": "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
@@ -163,12 +239,14 @@ export async function POST(request) {
         case "nebius":
         case "siliconflow":
         case "hyperbolic":
+        case "sambanova":
         case "ollama":
         case "ollama-local":
         case "assemblyai":
         case "nanobanana":
         case "chutes":
         case "nvidia": {
+          method = "models";
           const endpoints = {
             deepseek: "https://api.deepseek.com/models",
             groq: "https://api.groq.com/openai/v1/models",
@@ -182,6 +260,7 @@ export async function POST(request) {
             nebius: "https://api.studio.nebius.ai/v1/models",
             siliconflow: "https://api.siliconflow.cn/v1/models",
             hyperbolic: "https://api.hyperbolic.xyz/v1/models",
+            sambanova: "https://api.sambanova.ai/v1/models",
             ollama: "https://ollama.com/api/tags",
             "ollama-local": "http://localhost:11434/api/tags",
             assemblyai: "https://api.assemblyai.com/v1/account",
@@ -197,6 +276,7 @@ export async function POST(request) {
         }
 
         case "deepgram": {
+          method = "projects";
           const res = await fetch("https://api.deepgram.com/v1/projects", {
             headers: { "Authorization": `Token ${apiKey}` },
           });
@@ -205,6 +285,7 @@ export async function POST(request) {
         }
 
         case "vertex": {
+          method = "probe";
           // Raw key: probe global endpoint (always 404 for unknown model, never 401)
           // SA JSON: attempt token mint via JWT assertion
           const saJson = (() => { try { const p = JSON.parse(apiKey); return p.type === "service_account" ? p : null; } catch { return null; } })();
@@ -223,6 +304,7 @@ export async function POST(request) {
         }
 
         case "vertex-partner": {
+          method = "probe";
           const saJson = (() => { try { const p = JSON.parse(apiKey); return p.type === "service_account" ? p : null; } catch { return null; } })();
           if (saJson) {
             isValid = !!(saJson.client_email && saJson.private_key && saJson.project_id);
@@ -240,14 +322,19 @@ export async function POST(request) {
           return NextResponse.json({ error: "Provider validation not supported" }, { status: 400 });
       }
     } catch (err) {
-      error = err.message;
+      error = getFriendlyValidationError(err);
       isValid = false;
     }
 
-    return NextResponse.json({
+    const payload = {
       valid: isValid,
       error: isValid ? null : (error || "Invalid API key"),
-    });
+      method,
+      latencyMs: Date.now() - startedAt,
+      capabilityHints: getCapabilityHints(provider),
+    };
+    setCachedValue(cacheKey, payload, VALIDATION_CACHE_TTL_MS);
+    return NextResponse.json(payload);
   } catch (error) {
     console.log("Error validating API key:", error);
     return NextResponse.json({ error: "Validation failed" }, { status: 500 });

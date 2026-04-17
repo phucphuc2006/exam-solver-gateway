@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NexusAI Web Auto Connect</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <div class="header">
+      <p class="eyebrow">NexusAI</p>
+      <h1>NexusAI Web Auto Connect</h1>
+      <p class="subtitle">Kiểm tra extension đã nối được với dashboard Web Bridge cho ChatGPT, Gemini và Grok hay chưa.</p>
+    </div>
+
+    <section class="status-card" aria-live="polite">
+      <div class="status-row">
+        <span id="status-badge" class="status-badge status-idle">Chưa kiểm tra</span>
+      </div>
+      <p id="status-detail" class="status-detail">Mở tab NexusAI `/dashboard/chatgpt-web`, rồi bấm nút bên dưới để kiểm tra kết nối thật.</p>
+      <p id="status-meta" class="status-meta">Popup sẽ dò tab dashboard hợp lệ và ping trực tiếp vào bridge trên trang.</p>
+    </section>
+
+    <button id="check-button" class="check-button" type="button">Kiểm tra kết nối Dashboard</button>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { Card, Button, Badge, Input } from "@/shared/components";
+import { useRuntimeLocale } from "@/i18n/useRuntimeLocale";
 
 /**
  * Shared MITM infrastructure card — manages SSL cert + server start/stop.
  * DNS per-tool is handled separately in MitmToolCard.
  */
 export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }) {
+  const { t } = useRuntimeLocale();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -104,11 +106,11 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-primary text-[20px]">security</span>
-              <span className="font-semibold text-sm text-text-main">MITM Server</span>
+              <span className="font-semibold text-sm text-text-main">{t("MITM Server")}</span>
               {isRunning ? (
-                <Badge variant="success" size="sm">Running</Badge>
+                <Badge variant="success" size="sm">{t("Running")}</Badge>
               ) : (
-                <Badge variant="default" size="sm">Stopped</Badge>
+                <Badge variant="default" size="sm">{t("Stopped")}</Badge>
               )}
             </div>
             <div className="flex items-center gap-1 text-xs text-text-muted" data-i18n-skip="true">
@@ -121,7 +123,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                   <span className="material-symbols-outlined text-[12px]">
                     {ok ? "check_circle" : "cancel"}
                   </span>
-                  {label}
+                  {t(label)}
                 </span>
               ))}
             </div>
@@ -130,17 +132,19 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           {/* Purpose & How it works */}
           <div className="px-2 py-2 rounded-lg bg-surface/50 border border-border/50 flex flex-col gap-2">
             <p className="text-[11px] text-text-muted leading-relaxed">
-              <span className="font-medium text-text-main">Purpose:</span> Use Antigravity IDE & GitHub Copilot → with ANY provider/model from ES Gateway
+              <span className="font-medium text-text-main">{t("Purpose:")}</span>{" "}
+              {t("Use Antigravity IDE & GitHub Copilot → with ANY provider/model from NexusAI Gateway")}
             </p>
             <p className="text-[11px] text-text-muted leading-relaxed">
-              <span className="font-medium text-text-main">How it works:</span> Antigravity/Copilot IDE request → DNS redirect to localhost:443 → MITM proxy intercepts → ES Gateway → response to Antigravity/Copilot
+              <span className="font-medium text-text-main">{t("How it works:")}</span>{" "}
+              {t("Antigravity/Copilot IDE request → DNS redirect to localhost:443 → MITM proxy intercepts → NexusAI Gateway → response to Antigravity/Copilot")}
             </p>
           </div>
 
           {/* API Key selector (only when stopped) */}
           {!isRunning && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted shrink-0">API Key</span>
+              <span className="text-xs text-text-muted shrink-0">{t("API Key")}</span>
               {apiKeys?.length > 0 ? (
                 <select
                   value={selectedApiKey}
@@ -151,7 +155,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 </select>
               ) : (
                 <span className="text-xs text-text-muted">
-                  {cloudEnabled ? "No API keys — create one in Keys page" : "sk_ES Gateway (default)"}
+                  {cloudEnabled ? t("No API keys — create one in Keys page") : t("sk_NexusAI Gateway (default)")}
                 </span>
               )}
             </div>
@@ -166,7 +170,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 className="px-4 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 font-medium text-xs flex items-center gap-1.5 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[16px]">verified_user</span>
-                Trust Cert
+                {t("Trust Cert")}
               </button>
             )}
             {isRunning ? (
@@ -176,7 +180,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 className="px-4 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 font-medium text-xs flex items-center gap-1.5 hover:bg-red-500/20 transition-colors disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[16px]">stop_circle</span>
-                Stop Server
+                {t("Stop Server")}
               </button>
             ) : (
               <button
@@ -185,11 +189,11 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 className="px-4 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary font-medium text-xs flex items-center gap-1.5 hover:bg-primary/20 transition-colors disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[16px]">play_circle</span>
-                Start Server
+                {t("Start Server")}
               </button>
             )}
             {isRunning && (
-              <p className="text-xs text-text-muted">Enable DNS per tool below to activate interception</p>
+              <p className="text-xs text-text-muted">{t("Enable DNS per tool below to activate interception")}</p>
             )}
           </div>
 
@@ -197,7 +201,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           {isWindows && !isAdmin && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 border border-red-500/20">
               <span className="material-symbols-outlined text-[14px]">shield_lock</span>
-              <span>Administrator required — restart ES Gateway as Administrator to use MITM</span>
+              <span>{t("Administrator required — restart NexusAI Gateway as Administrator to use MITM")}</span>
             </div>
           )}
         </div>
@@ -207,14 +211,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-surface border border-border rounded-xl p-6 w-full max-w-sm flex flex-col gap-4 shadow-xl">
-            <h3 className="font-semibold text-text-main">Sudo Password Required</h3>
+            <h3 className="font-semibold text-text-main">{t("Sudo Password Required")}</h3>
             <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
               <span className="material-symbols-outlined text-yellow-500 text-[20px]">warning</span>
-              <p className="text-xs text-text-muted">Required for SSL certificate and server startup</p>
+              <p className="text-xs text-text-muted">{t("Required for SSL certificate and server startup")}</p>
             </div>
             <Input
               type="password"
-              placeholder="Enter sudo password"
+              placeholder={t("Enter sudo password")}
               value={sudoPassword}
               onChange={(e) => setSudoPassword(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !loading) handleConfirmPassword(); }}
@@ -222,15 +226,15 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
             {modalError && (
               <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600">
                 <span className="material-symbols-outlined text-[14px]">error</span>
-                <span>{modalError}</span>
+                <span>{t(modalError)}</span>
               </div>
             )}
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => { setShowPasswordModal(false); setSudoPassword(""); setModalError(null); }} disabled={loading}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button variant="primary" size="sm" onClick={handleConfirmPassword} loading={loading}>
-                Confirm
+                {t("Confirm")}
               </Button>
             </div>
           </div>

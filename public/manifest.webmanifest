@@ -1,0 +1,16 @@
+{
+  "name": "NexusAI Gateway",
+  "short_name": "NexusAI",
+  "description": "Smart AI Gateway - Multi-provider AI routing by NexusAI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0015",
+  "theme_color": "#f637ec",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

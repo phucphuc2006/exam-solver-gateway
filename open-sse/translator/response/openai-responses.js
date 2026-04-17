@@ -427,6 +427,24 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     };
   }
 
+  // Reasoning content delta (for Codex reasoning models like o1/o3/gpt-5.4-high)
+  if (eventType === "response.reasoning_summary_text.delta") {
+    const delta = data.delta || "";
+    if (!delta) return null;
+
+    return {
+      id: state.chatId,
+      object: "chat.completion.chunk",
+      created: state.created,
+      model: state.model || "unknown",
+      choices: [{
+        index: 0,
+        delta: { reasoning_content: delta },
+        finish_reason: null
+      }]
+    };
+  }
+
   // Text content done (ignore, we handle via delta)
   if (eventType === "response.output_text.done") {
     return null;
@@ -498,6 +516,7 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
       const outputTokens = responseUsage.output_tokens || responseUsage.completion_tokens || 0;
       const cacheReadTokens = responseUsage.cache_read_input_tokens || 0;
       const cacheCreationTokens = responseUsage.cache_creation_input_tokens || 0;
+      const reasoningTokens = responseUsage.output_tokens_details?.reasoning_tokens || responseUsage.reasoning_tokens || responseUsage.completion_tokens_details?.reasoning_tokens || 0;
       
       // prompt_tokens = input_tokens + cache_read + cache_creation (all prompt-side tokens)
       const promptTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
@@ -517,6 +536,11 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
         if (cacheCreationTokens > 0) {
           state.usage.prompt_tokens_details.cache_creation_tokens = cacheCreationTokens;
         }
+      }
+      
+      if (reasoningTokens > 0) {
+        state.usage.reasoning_tokens = reasoningTokens;
+        state.usage.completion_tokens_details = { reasoning_tokens: reasoningTokens };
       }
     }
     
@@ -574,10 +598,22 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
     return null;
   }
 
-  // Reasoning events (convert to content or skip)
+  // Reasoning events (convert to reasoning_content)
   if (eventType === "response.reasoning_summary_text.delta") {
-    // Optionally include reasoning as content, or skip
-    return null;
+    const delta = data.delta || "";
+    if (!delta) return null;
+
+    return {
+      id: state.chatId,
+      object: "chat.completion.chunk",
+      created: state.created,
+      model: state.model || "unknown",
+      choices: [{
+        index: 0,
+        delta: { reasoning_content: delta },
+        finish_reason: null
+      }]
+    };
   }
 
   // Ignore other events

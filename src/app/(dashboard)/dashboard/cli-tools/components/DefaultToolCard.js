@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card, ModelSelectModal } from "@/shared/components";
-import Image from "next/image";
+import { ModelSelectModal } from "@/shared/components";
+import AutoConfigToolShell from "./AutoConfigToolShell";
 
 export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, baseUrl, apiKeys, activeProviders = [], cloudEnabled = false, tunnelEnabled = false }) {
   const [copiedField, setCopiedField] = useState(null);
@@ -228,56 +228,13 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
     );
   };
 
-  const renderIcon = () => {
-    if (tool.image) {
-      return (
-        <Image
-          src={tool.image}
-          alt={tool.name}
-          width={32}
-          height={32}
-          className="size-8 object-contain rounded-lg"
-          sizes="32px"
-          onError={(e) => { e.target.style.display = "none"; }}
-        />
-      );
-    }
-    if (tool.icon) {
-      return <span className="material-symbols-outlined text-xl" style={{ color: tool.color }}>{tool.icon}</span>;
-    }
-    return (
-      <Image
-        src={`/providers/${toolId}.png`}
-        alt={tool.name}
-        width={32}
-        height={32}
-        className="size-8 object-contain rounded-lg"
-        sizes="32px"
-        onError={(e) => { e.target.style.display = "none"; }}
-      />
-    );
-  };
-
   return (
-    <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-center justify-between hover:cursor-pointer" onClick={onToggle}>
-        <div className="flex items-center gap-3">
-          <div className="size-8 rounded-lg flex items-center justify-center shrink-0">
-            {renderIcon()}
-          </div>
-          <div className="min-w-0">
-            <h3 className="font-medium text-sm">{tool.name}</h3>
-            <p className="text-xs text-text-muted truncate">{tool.description}</p>
-          </div>
-        </div>
-        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
-
-      {isExpanded && (
-        <div className="mt-6 pt-6 border-t border-border">
+    <>
+      <AutoConfigToolShell tool={tool} isExpanded={isExpanded} onToggle={onToggle}>
+        <div>
           {renderGuideSteps()}
         </div>
-      )}
+      </AutoConfigToolShell>
 
       <ModelSelectModal
         isOpen={showModelModal}
@@ -287,7 +244,7 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
         activeProviders={activeProviders}
         title="Select Model"
       />
-    </Card>
+    </>
   );
 }
 

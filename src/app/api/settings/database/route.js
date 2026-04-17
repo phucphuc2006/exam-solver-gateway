@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
-import { exportDb, getSettings, importDb } from "@/lib/localDb";
-import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 
-export async function GET() {
+async function authorizeRequest(request) {
+  const { requireAuthenticatedAdmin, requireBootstrapComplete } = await import("@/lib/adminAuth");
+  const bootstrapResponse = await requireBootstrapComplete(request);
+  if (bootstrapResponse) return bootstrapResponse;
+
+  return requireAuthenticatedAdmin(request, { allowLocal: true });
+}
+
+export async function GET(request) {
+  const authResponse = await authorizeRequest(request);
+  if (authResponse) return authResponse;
+
   try {
+    const { exportDb } = await import("@/lib/localDb");
     const payload = await exportDb();
     return NextResponse.json(payload);
   } catch (error) {
@@ -13,7 +23,14 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const authResponse = await authorizeRequest(request);
+  if (authResponse) return authResponse;
+
   try {
+    const [{ importDb, getSettings }, { applyOutboundProxyEnv }] = await Promise.all([
+      import("@/lib/localDb"),
+      import("@/lib/network/outboundProxy"),
+    ]);
     const payload = await request.json();
     await importDb(payload);
 

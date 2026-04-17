@@ -1,4 +1,6 @@
+import crypto from "crypto";
 import { machineIdSync } from 'node-machine-id';
+import { getMachineIdSalt } from "@/lib/serverRuntimeConfig";
 
 /**
  * Get consistent machine ID using node-machine-id with salt
@@ -9,18 +11,17 @@ import { machineIdSync } from 'node-machine-id';
  */
 export async function getConsistentMachineId(salt = null) {
   // For server-side, use node-machine-id with salt
-  const saltValue = salt || process.env.MACHINE_ID_SALT || 'endpoint-proxy-salt';
+  const saltValue = salt || getMachineIdSalt();
   try {
     const rawMachineId = machineIdSync();
     // Create consistent ID using salt
-    const crypto = await import('crypto');
     const hashedMachineId = crypto.createHash('sha256').update(rawMachineId + saltValue).digest('hex');
     // Return only first 16 characters for brevity
     return hashedMachineId.substring(0, 16);
   } catch (error) {
     console.log('Error getting machine ID:', error);
     // Fallback to random ID if node-machine-id fails
-    return crypto.randomUUID ? crypto.randomUUID() : 
+    return crypto.randomUUID ? crypto.randomUUID() :
       'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
         const v = c == 'x' ? r : (r & 0x3 | 0x8);
@@ -40,7 +41,7 @@ export async function getRawMachineId() {
   } catch (error) {
     console.log('Error getting raw machine ID:', error);
     // Fallback to random ID if node-machine-id fails
-    return crypto.randomUUID ? crypto.randomUUID() : 
+    return crypto.randomUUID ? crypto.randomUUID() :
       'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
         const v = c == 'x' ? r : (r & 0x3 | 0x8);

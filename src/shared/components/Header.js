@@ -1,13 +1,14 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import PropTypes from "prop-types";
 import ProviderIcon from "@/shared/components/ProviderIcon";
-import { ThemeToggle, LanguageSwitcher } from "@/shared/components";
+import { LanguageSwitcher } from "@/shared/components";
+import { ConfirmModal } from "@/shared/components/Modal";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
-import { translate } from "@/i18n/runtime";
+import { useRuntimeLocale } from "@/i18n/useRuntimeLocale";
 
 const getPageInfo = (pathname) => {
   if (!pathname) return { title: "", description: "", breadcrumbs: [] };
@@ -33,33 +34,51 @@ const getPageInfo = (pathname) => {
   }
 
   if (pathname.includes("/providers"))
-    return { title: "Providers", description: "Quản lý kết nối AI provider", icon: "dns", breadcrumbs: [] };
+    return { title: "Providers", description: "Manage AI provider connections", icon: "dns", breadcrumbs: [] };
   if (pathname.includes("/combos"))
-    return { title: "Combos", description: "Model combos với fallback", icon: "layers", breadcrumbs: [] };
+    return { title: "Combos", description: "Build model workflows with fallback support", icon: "layers", breadcrumbs: [] };
   if (pathname.includes("/usage"))
-    return { title: "Usage & Analytics", description: "Theo dõi API usage, token và request logs", icon: "bar_chart", breadcrumbs: [] };
+    return { title: "Usage & Analytics", description: "Track API usage, token consumption, and request logs", icon: "bar_chart", breadcrumbs: [] };
   if (pathname.includes("/quota"))
-    return { title: "Quota Tracker", description: "Quản lý giới hạn API quota", icon: "data_usage", breadcrumbs: [] };
+    return { title: "Quota Tracker", description: "Monitor API quota limits", icon: "data_usage", breadcrumbs: [] };
+  if (pathname.includes("/diagnostics"))
+    return { title: "Diagnostics Lab", description: "Check model capabilities and diagnostics", icon: "science", breadcrumbs: [] };
   if (pathname.includes("/mitm"))
-    return { title: "MITM Proxy", description: "Chặn traffic CLI tool và route qua ES Gateway", icon: "security", breadcrumbs: [] };
+    return { title: "MITM Proxy", description: "Intercept CLI tool traffic and route through NexusAI Gateway", icon: "security", breadcrumbs: [] };
   if (pathname.includes("/cli-tools"))
-    return { title: "CLI Tools", description: "Cấu hình CLI tools", icon: "terminal", breadcrumbs: [] };
+    return {
+      title: "Auto Config",
+      description: "Configure OpenClaw, Codex, OpenCode, Claude and IDE tools automatically",
+      icon: "tune",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/proxy-pools"))
-    return { title: "Proxy Pools", description: "Quản lý cấu hình proxy pool", icon: "lan", breadcrumbs: [] };
+    return { title: "Proxy Pools", description: "Manage proxy pool configuration", icon: "lan", breadcrumbs: [] };
   if (pathname.includes("/endpoint"))
-    return { title: "Endpoint", description: "Cấu hình API endpoint", icon: "api", breadcrumbs: [] };
+    return { title: "Endpoint", description: "Configure API endpoint", icon: "api", breadcrumbs: [] };
+  if (pathname.includes("/chatgpt-web"))
+    return {
+      title: "Web Bridge",
+      description: "Bridge logged-in ChatGPT, Gemini, and Grok web sessions into an experimental HTTP API",
+      icon: "smart_toy",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/profile"))
-    return { title: "Settings", description: "Quản lý cài đặt hệ thống", icon: "settings", breadcrumbs: [] };
+    return { title: "Settings", description: "Manage system settings", icon: "settings", breadcrumbs: [] };
   if (pathname.includes("/translator"))
     return { title: "Translator", description: "Debug translation flow", icon: "translate", breadcrumbs: [] };
   if (pathname.includes("/console-log"))
     return { title: "Console Log", description: "Live server console output", icon: "monitor", breadcrumbs: [] };
   if (pathname === "/dashboard")
-    return { title: "Endpoint", description: "Cấu hình API endpoint", icon: "api", breadcrumbs: [] };
+    return { title: "Endpoint", description: "Configure API endpoint", icon: "api", breadcrumbs: [] };
   return { title: "", description: "", breadcrumbs: [] };
 };
 
 export default function Header({ onMenuClick, showMenuButton = true }) {
+  const { t } = useRuntimeLocale();
+  const [showShutdownModal, setShowShutdownModal] = useState(false);
+  const [isShuttingDown, setIsShuttingDown] = useState(false);
+  const [isDisconnected, setIsDisconnected] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const pageInfo = useMemo(() => getPageInfo(pathname), [pathname]);
@@ -77,7 +96,20 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
     }
   };
 
+  const handleShutdown = async () => {
+    setIsShuttingDown(true);
+    try {
+      await fetch("/api/shutdown", { method: "POST" });
+    } catch (e) {
+      // Expected to fail as server shuts down
+    }
+    setIsShuttingDown(false);
+    setShowShutdownModal(false);
+    setIsDisconnected(true);
+  };
+
   return (
+    <>
     <header 
       className="flex items-center justify-between px-8 py-4 z-10 sticky top-0"
       style={{
@@ -118,7 +150,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                     href={crumb.href}
                     className="text-text-muted hover:text-primary transition-colors"
                   >
-                    {crumb.label}
+                    {t(crumb.label)}
                   </Link>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -132,7 +164,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                       />
                     )}
                     <h1 className="text-xl font-semibold text-text-main tracking-tight">
-                      {translate(crumb.label)}
+                      {t(crumb.label)}
                     </h1>
                   </div>
                 )}
@@ -145,20 +177,20 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
               {icon && (
                 <div 
                   className="flex items-center justify-center size-8 rounded-lg"
-                  style={{background: 'rgba(0, 212, 255, 0.08)', border: '1px solid rgba(0, 212, 255, 0.1)'}}
+                  style={{background: 'rgba(246, 55, 236, 0.08)', border: '1px solid rgba(246, 55, 236, 0.1)'}}
                 >
-                  <span className="material-symbols-outlined text-[#00d4ff] text-[18px]">
+                  <span className="material-symbols-outlined text-[#f637ec] text-[18px]">
                     {icon}
                   </span>
                 </div>
               )}
               <div>
                 <h1 className="text-xl font-semibold tracking-tight text-text-main">
-                  {translate(title)}
+                  {t(title)}
                 </h1>
                 {description && (
                   <p className="text-xs text-text-muted mt-0.5">
-                    {translate(description)}
+                    {t(description)}
                   </p>
                 )}
               </div>
@@ -169,11 +201,22 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
 
       {/* Right actions */}
       <div className="flex items-center gap-2 ml-auto">
-        {/* Language switcher */}
         <LanguageSwitcher />
 
-        {/* Theme toggle */}
-        <ThemeToggle />
+        {/* Shutdown button */}
+        <button
+          onClick={() => setShowShutdownModal(true)}
+          className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-red-400 transition-all duration-200"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+          }}
+          title={t("Shut down server")}
+        >
+          <span className="material-symbols-outlined text-[20px]">power_settings_new</span>
+        </button>
 
         {/* Logout button */}
         <button
@@ -186,12 +229,52 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
           onMouseLeave={(e) => {
             e.currentTarget.style.background = 'transparent';
           }}
-          title="Đăng xuất"
+          title={t("Logout")}
         >
           <span className="material-symbols-outlined text-[20px]">logout</span>
         </button>
       </div>
     </header>
+      
+      {/* Shutdown Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showShutdownModal}
+        onClose={() => setShowShutdownModal(false)}
+        onConfirm={handleShutdown}
+        title={t("Shut Down")}
+        message={t("Are you sure you want to shut down the proxy server?")}
+        confirmText={t("Shut Down")}
+        cancelText={t("Cancel")}
+        variant="danger"
+        loading={isShuttingDown}
+      />
+
+      {/* Disconnected Overlay */}
+      {isDisconnected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background: 'rgba(10, 15, 26, 0.9)', backdropFilter: 'blur(8px)'}}>
+          <div className="text-center p-8 animate-fade-in-up">
+            <div 
+              className="flex items-center justify-center size-20 rounded-2xl mx-auto mb-5"
+              style={{background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.15)'}}
+            >
+              <span className="material-symbols-outlined text-[36px] text-red-400">power_off</span>
+            </div>
+            <h2 className="text-xl font-bold text-white mb-2">{t("Server disconnected")}</h2>
+            <p className="text-[#94a3b8] mb-6 text-sm">{t("The proxy server has been stopped successfully.")}</p>
+            <button 
+              onClick={() => globalThis.location.reload()}
+              className="px-6 py-2.5 rounded-xl text-sm font-medium text-[#f637ec] transition-all duration-200"
+              style={{
+                background: 'rgba(246, 55, 236, 0.08)',
+                border: '1px solid rgba(246, 55, 236, 0.15)',
+              }}
+            >
+              {t("Reload page")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

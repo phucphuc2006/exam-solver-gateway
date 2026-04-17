@@ -1,5 +1,5 @@
 /**
- * Export services — Exam Solver AI Gateway
+ * Export services — NexusAI Gateway
  * Only Codex + Kiro + base OAuth
  */
 

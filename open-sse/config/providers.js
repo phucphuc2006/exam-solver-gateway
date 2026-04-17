@@ -336,4 +336,70 @@ export const PROVIDERS = {
     baseUrl: "https://copilot.tencent.com/v1/chat/completions",
     format: "openai",
   },
+  
+  // NEW API KEY PROVIDERS
+  requesty: {
+    baseUrl: "https://router.requesty.ai/v1/chat/completions",
+    format: "openai"
+  },
+  lepton: {
+    baseUrl: "https://fast.lepton.ai/api/v1/chat/completions",
+    format: "openai"
+  },
+  anyscale: {
+    baseUrl: "https://api.endpoints.anyscale.com/v1/chat/completions",
+    format: "openai"
+  },
+  deepinfra: {
+    baseUrl: "https://api.deepinfra.com/v1/openai/chat/completions",
+    format: "openai"
+  },
+  sambanova: {
+    baseUrl: "https://api.sambanova.ai/v1/chat/completions",
+    format: "openai"
+  },
+  lambda: {
+    baseUrl: "https://api.lambda.chat/v1/chat/completions",
+    format: "openai"
+  },
+  novita: {
+    baseUrl: "https://api.novita.ai/v3/openai/chat/completions",
+    format: "openai"
+  },
+  baichuan: {
+    baseUrl: "https://api.baichuan-ai.com/v1/chat/completions",
+    format: "openai"
+  },
+  doubao: {
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+    format: "openai"
+  },
+  moonshot: {
+    baseUrl: "https://api.moonshot.cn/v1/chat/completions",
+    format: "openai"
+  },
+  yi: {
+    baseUrl: "https://api.01.ai/v1/chat/completions",
+    format: "openai"
+  },
+  zhipu: {
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    format: "openai"
+  },
+  ernie: {
+    baseUrl: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+    format: "openai"
+  },
+  amazonq: {
+    baseUrl: "https://q.us-east-1.amazonaws.com/model/invoke",
+    format: "openai"
+  },
+  gitlab: {
+    baseUrl: "https://gitlab.com/api/v4/feature_flags/unleash/425508",
+    format: "openai"
+  },
+  codebuddy: {
+    baseUrl: "https://api.codebuddy.com/v1/chat/completions",
+    format: "openai"
+  }
 };

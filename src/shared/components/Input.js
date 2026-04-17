@@ -18,7 +18,7 @@ export default function Input({
   ...props
 }) {
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       {label && (
         <label className="text-sm font-medium text-text-main">
           {label}
@@ -55,13 +55,13 @@ export default function Input({
         />
       </div>
       {error && (
-        <p className="text-xs text-red-500 flex items-center gap-1">
+        <p className="flex items-center gap-1 break-words text-xs text-red-500">
           <span className="material-symbols-outlined text-[14px]">error</span>
           {error}
         </p>
       )}
       {hint && !error && (
-        <p className="text-xs text-text-muted">{hint}</p>
+        <p className="break-words text-xs text-text-muted">{hint}</p>
       )}
     </div>
   );

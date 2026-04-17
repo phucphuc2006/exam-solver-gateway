@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getPricing, updatePricing, resetPricing, resetAllPricing } from "@/lib/localDb.js";
-import { getDefaultPricing } from "@/shared/constants/pricing.js";
+import { createLogger } from "@/lib/logger";
+import { getPricing, updatePricing, resetPricing, resetAllPricing } from "@/lib/localDb/index.js";
+
+const logger = createLogger("api.pricing");
 
 /**
  * GET /api/pricing
@@ -11,7 +13,7 @@ export async function GET() {
     const pricing = await getPricing();
     return NextResponse.json(pricing);
   } catch (error) {
-    console.error("Error fetching pricing:", error);
+    logger.error("Error fetching pricing", { error: error?.message || String(error) });
     return NextResponse.json(
       { error: "Failed to fetch pricing" },
       { status: 500 }
@@ -75,7 +77,7 @@ export async function PATCH(request) {
     const updatedPricing = await updatePricing(body);
     return NextResponse.json(updatedPricing);
   } catch (error) {
-    console.error("Error updating pricing:", error);
+    logger.error("Error updating pricing", { error: error?.message || String(error) });
     return NextResponse.json(
       { error: "Failed to update pricing" },
       { status: 500 }
@@ -108,7 +110,7 @@ export async function DELETE(request) {
     const pricing = await getPricing();
     return NextResponse.json(pricing);
   } catch (error) {
-    console.error("Error resetting pricing:", error);
+    logger.error("Error resetting pricing", { error: error?.message || String(error) });
     return NextResponse.json(
       { error: "Failed to reset pricing" },
       { status: 500 }
@@ -116,19 +118,3 @@ export async function DELETE(request) {
   }
 }
 
-/**
- * GET /api/pricing/defaults
- * Get default pricing configuration
- */
-export async function GET_DEFAULTS() {
-  try {
-    const defaultPricing = getDefaultPricing();
-    return NextResponse.json(defaultPricing);
-  } catch (error) {
-    console.error("Error fetching default pricing:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch default pricing" },
-      { status: 500 }
-    );
-  }
-}

@@ -1,11 +1,70 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
+import { buildConnectionHealthUpdate, getConnectionHealthScore } from "@/lib/connectionHealth";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId } from "@/shared/constants/providers.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
+const weightedRoundRobinState = global.__weightedRoundRobinState || new Map();
+
+if (!global.__weightedRoundRobinState) {
+  global.__weightedRoundRobinState = weightedRoundRobinState;
+}
+
+function selectWeightedRoundRobinConnection(providerId, connections) {
+  const stateKey = providerId || "default";
+  let providerState = weightedRoundRobinState.get(stateKey);
+  if (!providerState) {
+    providerState = new Map();
+    weightedRoundRobinState.set(stateKey, providerState);
+  }
+
+  let totalWeight = 0;
+  let selectedConnection = null;
+  let selectedScore = Number.NEGATIVE_INFINITY;
+  const activeIds = new Set();
+
+  for (const connection of connections) {
+    activeIds.add(connection.id);
+
+    const baseWeight = Math.max(1, Number(connection.weight) || 1);
+    const effectiveWeight = Math.max(1, Math.round(baseWeight * getConnectionHealthScore(connection) * 100));
+    totalWeight += effectiveWeight;
+
+    const currentScore = (providerState.get(connection.id) || 0) + effectiveWeight;
+    providerState.set(connection.id, currentScore);
+
+    if (
+      currentScore > selectedScore ||
+      (
+        currentScore === selectedScore &&
+        (connection.priority || 999) < (selectedConnection?.priority || 999)
+      )
+    ) {
+      selectedConnection = connection;
+      selectedScore = currentScore;
+    }
+  }
+
+  for (const connectionId of [...providerState.keys()]) {
+    if (!activeIds.has(connectionId)) {
+      providerState.delete(connectionId);
+    }
+  }
+
+  if (!selectedConnection) {
+    return connections[0];
+  }
+
+  providerState.set(
+    selectedConnection.id,
+    (providerState.get(selectedConnection.id) || 0) - totalWeight,
+  );
+
+  return selectedConnection;
+}
 
 /**
  * Get provider credentials from localDb
@@ -120,6 +179,12 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           consecutiveUseCount: 1
         });
       }
+    } else if (strategy === "weighted-round-robin") {
+      connection = selectWeightedRoundRobinConnection(providerId, availableConnections);
+      await updateProviderConnection(connection.id, {
+        lastUsedAt: new Date().toISOString(),
+        consecutiveUseCount: 1
+      });
     } else {
       // Default: fill-first (already sorted by priority in getProviderConnections)
       connection = availableConnections[0];
@@ -173,9 +238,11 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
   const lockUpdate = buildModelLockUpdate(model, cooldownMs);
+  const healthUpdate = buildConnectionHealthUpdate(conn, { success: false });
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,
+    ...healthUpdate,
     testStatus: "unavailable",
     lastError: reason,
     errorCode: status,
@@ -228,13 +295,17 @@ export async function clearAccountError(connectionId, currentConnection, model =
   });
 
   const clearObj = Object.fromEntries(keysToClear.map(k => [k, null]));
+  const healthUpdate = buildConnectionHealthUpdate(conn, { success: true });
 
   // Only reset error state if no active locks remain
   if (remainingActiveLocks.length === 0) {
     Object.assign(clearObj, { testStatus: "active", lastError: null, lastErrorAt: null, backoffLevel: 0 });
   }
 
-  await updateProviderConnection(connectionId, clearObj);
+  await updateProviderConnection(connectionId, {
+    ...clearObj,
+    ...healthUpdate
+  });
   const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
   log.info("AUTH", `Account ${connName} cleared lock for model=${model || "__all"}`);
 }
