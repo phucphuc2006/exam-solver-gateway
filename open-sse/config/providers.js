@@ -92,7 +92,7 @@ export const PROVIDERS = {
     format: "openai",
     headers: { "User-Agent": "iFlow-Cli" },
     clientId: "10009311001",
-    clientSecret: "***REMOVED***",
+    clientSecret: process.env.IFLOW_OAUTH_CLIENT_SECRET || "dummy-client-secret",
     tokenUrl: "https://iflow.cn/oauth/token",
     authUrl: "https://iflow.cn/oauth"
   },
@@ -101,7 +101,7 @@ export const PROVIDERS = {
     format: "openai",
     headers: { "User-Agent": "Qoder-Cli" },
     clientId: process.env.QODER_OAUTH_CLIENT_ID || "10009311001",
-    clientSecret: process.env.QODER_OAUTH_CLIENT_SECRET || "***REMOVED***",
+    clientSecret: process.env.QODER_OAUTH_CLIENT_SECRET || "dummy-client-secret",
     tokenUrl: "https://api.qoder.com/oauth/token",
     authUrl: "https://qoder.com/oauth/authorize"
   },
